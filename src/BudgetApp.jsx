@@ -1,3 +1,4 @@
+import React from "react";
 import { useState, useMemo, useEffect, useRef } from "react";
 
 // VERSIONE STABILE: 2.1
@@ -12,7 +13,6 @@ export default function BudgetApp() {
   const [lastUpdate, setLastUpdate] = useState(null);
 
   const fileInputRef = useRef(null);
-
   const [swipe, setSwipe] = useState({ index: null, x: 0, startX: 0 });
 
   const formatEuro = (val) =>
@@ -46,7 +46,6 @@ export default function BudgetApp() {
     );
   }, [saldo, chebanca, revolut, targetDate, minimo, storico, lastUpdate]);
 
-  // FIX formato timestamp
   const formatTimestamp = (date) => {
     const d = new Date(date);
     const pad = (n) => n.toString().padStart(2, "0");
@@ -63,11 +62,10 @@ export default function BudgetApp() {
     setSaldo(saldoCalcolato);
     setLastUpdate(timestamp);
 
-    const nuovoStorico = [
+    setStorico([
       ...storico,
       { data: timestamp, raw: Date.now(), saldo: saldoCalcolato }
-    ];
-    setStorico(nuovoStorico);
+    ]);
   };
 
   const exportData = () => {
@@ -97,19 +95,20 @@ export default function BudgetApp() {
 
         const merged = Array.from(map.values()).sort((a, b) => {
           if (a.raw && b.raw) return a.raw - b.raw;
-          return new Date(a.data) - new Date(b.data);
+          return 0;
         });
 
         setStorico(merged);
-        setSaldo(parsed.saldo || saldo);
-        setChebanca(parsed.chebanca || chebanca);
-        setRevolut(parsed.revolut || revolut);
-        setTargetDate(parsed.targetDate || targetDate);
-        setMinimo(parsed.minimo || minimo);
-        setLastUpdate(parsed.lastUpdate || lastUpdate);
+        setSaldo(parsed.saldo ?? saldo);
+        setChebanca(parsed.chebanca ?? chebanca);
+        setRevolut(parsed.revolut ?? revolut);
+        setTargetDate(parsed.targetDate ?? targetDate);
+        setMinimo(parsed.minimo ?? minimo);
+        setLastUpdate(parsed.lastUpdate ?? lastUpdate);
 
         alert("Backup unito correttamente");
-      } catch {
+      } catch (err) {
+        console.error(err);
         alert("Errore durante l'import");
       }
     };
@@ -121,7 +120,6 @@ export default function BudgetApp() {
     const updated = [...storico];
     updated.splice(index, 1);
     setStorico(updated);
-
     if (navigator.vibrate) navigator.vibrate(15);
   };
 
@@ -131,45 +129,33 @@ export default function BudgetApp() {
 
   const handleTouchMove = (e) => {
     if (swipe.index === null) return;
-    const currentX = e.touches[0].clientX;
-    const diff = currentX - swipe.startX;
-
+    const diff = e.touches[0].clientX - swipe.startX;
     if (diff < 0) {
       setSwipe((prev) => ({ ...prev, x: Math.max(diff, -120) }));
     }
   };
 
   const handleTouchEnd = (index) => {
-    if (swipe.x < -80) {
-      rimuoviVoceStorico(index);
-    }
+    if (swipe.x < -80) rimuoviVoceStorico(index);
     setSwipe({ index: null, x: 0, startX: 0 });
   };
 
   const giorniRestanti = useMemo(() => {
     if (!targetDate) return 0;
-    const oggi = new Date();
-    const target = new Date(targetDate);
-    const diff = Math.ceil((target - oggi) / (1000 * 60 * 60 * 24));
+    const diff = Math.ceil((new Date(targetDate) - new Date()) / 86400000);
     return diff > 0 ? diff : 0;
   }, [targetDate]);
 
   const budgetGiornaliero = useMemo(() => {
-    if (giorniRestanti === 0) return 0;
-    return (saldo - minimo) / giorniRestanti;
+    return giorniRestanti ? (saldo - minimo) / giorniRestanti : 0;
   }, [saldo, minimo, giorniRestanti]);
 
   const previsione = useMemo(() => {
-    if (giorniRestanti === 0) return saldo;
     return saldo - budgetGiornaliero * giorniRestanti;
   }, [saldo, budgetGiornaliero, giorniRestanti]);
 
-  const scostamento = useMemo(() => previsione - minimo, [previsione, minimo]);
-
-  const percentuale = useMemo(() => {
-    if (minimo === 0) return 0;
-    return (scostamento / minimo) * 100;
-  }, [scostamento, minimo]);
+  const scostamento = previsione - minimo;
+  const percentuale = minimo ? (scostamento / minimo) * 100 : 0;
 
   const statoClasse =
     scostamento >= 0
@@ -180,20 +166,11 @@ export default function BudgetApp() {
 
   const speseGiornaliere = useMemo(() => {
     if (storico.length < 2) return [];
-
-    const res = [];
-    for (let i = 1; i < storico.length; i++) {
-      const prev = storico[i - 1];
-      const curr = storico[i];
-      const spesa = prev.saldo - curr.saldo;
-
-      res.push({
-        data: curr.data,
-        spesa,
-        index: i
-      });
-    }
-    return res;
+    return storico.slice(1).map((curr, i) => ({
+      data: curr.data,
+      spesa: storico[i].saldo - curr.saldo,
+      index: i + 1
+    }));
   }, [storico]);
 
   return (
@@ -202,32 +179,28 @@ export default function BudgetApp() {
         <h1 className="text-xl font-bold text-center">Controllo budget giornaliero</h1>
 
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium">CheBanca</label>
-            <div className="relative mt-1">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={chebanca}
-                onChange={(e) => setChebanca(e.target.value)}
-                className="w-full p-2 pr-8 border rounded"
-              />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
-            </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Revolut</label>
-            <div className="relative mt-1">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={revolut}
-                onChange={(e) => setRevolut(e.target.value)}
-                className="w-full p-2 pr-8 border rounded"
-              />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
-            </div>
-          </div>
+          {["CheBanca", "Revolut"].map((label, i) => {
+            const val = i === 0 ? chebanca : revolut;
+            const setter = i === 0 ? setChebanca : setRevolut;
+            return (
+              <div key={label}>
+                <label className="text-sm font-medium">{label}</label>
+                <div className="relative mt-1">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={val}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^0-9.]/g, "");
+                      setter(v === "" ? 0 : Number(v));
+                    }}
+                    className="w-full p-2 pr-8 border rounded"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         <div className="p-2 border rounded bg-gray-50 font-semibold text-center">
@@ -238,112 +211,48 @@ export default function BudgetApp() {
           Conferma saldo
         </button>
 
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium">Data Stipendio</label>
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              className="w-full p-2 border rounded mt-1"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">
-              Riserva in € al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}
-            </label>
-            <div className="relative mt-1">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={minimo}
-                onChange={(e) => setMinimo(Number(e.target.value))}
-                className="w-full p-2 pr-8 border rounded"
-              />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
-            </div>
-          </div>
+        <div>
+          <label className="text-sm font-medium">Data Stipendio</label>
+          <input
+            type="date"
+            value={targetDate}
+            onChange={(e) => setTargetDate(e.target.value)}
+            className="w-full p-2 border rounded mt-1"
+          />
         </div>
 
-        <div className="space-y-2">
+        <div>
+          <label className="text-sm font-medium">
+            Riserva in € al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}
+          </label>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={minimo}
+            onChange={(e) => {
+              const v = e.target.value.replace(/[^0-9.]/g, "");
+              setMinimo(v === "" ? 0 : Number(v));
+            }}
+            className="w-full p-2 border rounded mt-1"
+          />
+        </div>
+
+        <div>
+          <p>Giorni restanti: <strong>{giorniRestanti}</strong></p>
+          <p>Budget: <strong className={statoClasse}>{formatEuro(budgetGiornaliero)}</strong></p>
           <p>
-            Giorni restanti: <strong>{giorniRestanti}</strong>
-          </p>
-          <p>
-            Budget giornaliero: <strong className={statoClasse}>{formatEuro(budgetGiornaliero)}</strong>
-          </p>
-          <p>
-            Previsione Saldo al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}:
+            Previsione:
             <strong className={statoClasse}> {formatEuro(previsione)}</strong>
           </p>
-          <p className={`${statoClasse} text-sm font-semibold`}>
-            {scostamento >= 0
-              ? `+${formatEuro(scostamento)} sopra la riserva`
-              : `-${formatEuro(Math.abs(scostamento))} sotto la riserva`}
-          </p>
         </div>
 
-        {speseGiornaliere.length > 0 && (
-          <div className="pt-4">
-            <h2 className="font-semibold mb-2">Storico spese</h2>
-            <div className="space-y-2 text-sm">
-              {[...speseGiornaliere].reverse().map((s, idx) => {
-                const realIndex = speseGiornaliere.length - 1 - idx;
-                return (
-                  <div
-                    key={realIndex}
-                    onTouchStart={(e) => handleTouchStart(e, realIndex)}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={() => handleTouchEnd(realIndex)}
-                    className="relative overflow-hidden rounded-xl"
-                  >
-                    <div className="absolute inset-0 bg-red-500 flex items-center justify-end pr-4 text-white font-bold">
-                      elimina
-                    </div>
-
-                    <div
-                      className="relative z-10 flex justify-between items-center p-2 bg-white transition-transform duration-150"
-                      style={{
-                        transform:
-                          swipe.index === realIndex
-                            ? `translateX(${swipe.x}px)`
-                            : "translateX(0px)"
-                      }}
-                    >
-                      <span>{s.data?.replace(/-/g, "/")}</span>
-
-                      <span className={`${s.spesa >= 0 ? "text-red-600" : "text-green-600"} font-semibold`}>
-                        {`${s.spesa >= 0 ? "-" : "+"}${formatEuro(Math.abs(s.spesa))}`}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         <div className="space-y-2">
-          <button
-            onClick={() => fileInputRef.current.click()}
-            className="w-full p-2 bg-gray-700 text-white rounded"
-          >
-            Importa backup
+          <button onClick={() => fileInputRef.current.click()} className="w-full p-2 bg-gray-700 text-white rounded">
+            Importa
           </button>
-
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={importData}
-            className="hidden"
-          />
-
-          <button
-            onClick={exportData}
-            className="w-full p-2 bg-blue-600 text-white rounded"
-          >
-            Esporta backup
+          <input type="file" ref={fileInputRef} onChange={importData} className="hidden" />
+          <button onClick={exportData} className="w-full p-2 bg-blue-600 text-white rounded">
+            Esporta
           </button>
         </div>
       </div>
