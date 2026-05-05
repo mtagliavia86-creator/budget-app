@@ -1,13 +1,8 @@
 import React from "react";
 import { useState, useMemo, useEffect, useRef } from "react";
 
-// VERSIONE STABILE: 2.1
+// VERSIONE STABILE: 3.5
 // BREAKPOINT DI RIPRISTINO - NON MODIFICARE SENZA NUOVA VERSIONE
-/* NOTE: Tailwind non è configurato nel progetto Vite.
-   Per mantenere lo stile senza setup, usa CDN.
-   Aggiungi in index.html dentro <head>:
-   <script src="https://cdn.tailwindcss.com"></script>
-*/
 export default function BudgetApp() {
   const [saldo, setSaldo] = useState(0);
   const [chebanca, setChebanca] = useState(0);
@@ -18,7 +13,6 @@ export default function BudgetApp() {
   const [lastUpdate, setLastUpdate] = useState(null);
 
   const fileInputRef = useRef(null);
-
   const [swipe, setSwipe] = useState({ index: null, x: 0, startX: 0 });
 
   const formatEuro = (val) =>
@@ -52,7 +46,6 @@ export default function BudgetApp() {
     );
   }, [saldo, chebanca, revolut, targetDate, minimo, storico, lastUpdate]);
 
-  // FIX formato timestamp
   const formatTimestamp = (date) => {
     const d = new Date(date);
     const pad = (n) => n.toString().padStart(2, "0");
@@ -69,11 +62,10 @@ export default function BudgetApp() {
     setSaldo(saldoCalcolato);
     setLastUpdate(timestamp);
 
-    const nuovoStorico = [
+    setStorico([
       ...storico,
       { data: timestamp, raw: Date.now(), saldo: saldoCalcolato }
-    ];
-    setStorico(nuovoStorico);
+    ]);
   };
 
   const exportData = () => {
@@ -138,9 +130,7 @@ export default function BudgetApp() {
 
   const handleTouchMove = (e) => {
     if (swipe.index === null) return;
-    const currentX = e.touches[0].clientX;
-    const diff = currentX - swipe.startX;
-
+    const diff = e.touches[0].clientX - swipe.startX;
     if (diff < 0) {
       setSwipe((prev) => ({ ...prev, x: Math.max(diff, -120) }));
     }
@@ -155,9 +145,7 @@ export default function BudgetApp() {
 
   const giorniRestanti = useMemo(() => {
     if (!targetDate) return 0;
-    const oggi = new Date();
-    const target = new Date(targetDate);
-    const diff = Math.ceil((target - oggi) / (1000 * 60 * 60 * 24));
+    const diff = Math.ceil((new Date(targetDate) - new Date()) / 86400000);
     return diff > 0 ? diff : 0;
   }, [targetDate]);
 
@@ -166,41 +154,31 @@ export default function BudgetApp() {
     return (saldo - minimo) / giorniRestanti;
   }, [saldo, minimo, giorniRestanti]);
 
-  const previsione = useMemo(() => {
-    if (giorniRestanti === 0) return saldo;
-    return saldo - budgetGiornaliero * giorniRestanti;
-  }, [saldo, budgetGiornaliero, giorniRestanti]);
+  const budgetGiornalieroTotale = useMemo(() => {
+    if (giorniRestanti === 0) return 0;
+    return saldo / giorniRestanti;
+  }, [saldo, giorniRestanti]);
 
-  const scostamento = useMemo(() => previsione - minimo, [previsione, minimo]);
+  const totaleStimato = budgetGiornaliero * giorniRestanti;
+  const differenzaRiserva = totaleStimato - minimo;
 
-  const percentuale = useMemo(() => {
-    if (minimo === 0) return 0;
-    return (scostamento / minimo) * 100;
-  }, [scostamento, minimo]);
+  const percentualeRiserva = minimo > 0 ? (differenzaRiserva / minimo) * 100 : 0;
 
   const statoClasse =
-    scostamento >= 0
+    differenzaRiserva >= 0
       ? "text-green-600"
-      : percentuale >= -25
+      : percentualeRiserva >= -25
       ? "text-orange-500"
       : "text-red-600";
 
   const speseGiornaliere = useMemo(() => {
     if (storico.length < 2) return [];
 
-    const res = [];
-    for (let i = 1; i < storico.length; i++) {
-      const prev = storico[i - 1];
-      const curr = storico[i];
-      const spesa = prev.saldo - curr.saldo;
-
-      res.push({
-        data: curr.data,
-        spesa,
-        index: i
-      });
-    }
-    return res;
+    return storico.slice(1).map((curr, i) => ({
+      data: curr.data,
+      spesa: storico[i].saldo - curr.saldo,
+      index: i + 1
+    }));
   }, [storico]);
 
   return (
@@ -209,42 +187,36 @@ export default function BudgetApp() {
         <h1 className="text-xl font-bold text-center">Controllo budget giornaliero</h1>
 
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-sm font-medium">CheBanca</label>
-            <div className="relative mt-1">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={chebanca}
-                onChange={(e) => {
-                const val = e.target.value.replace(/[^0-9.]/g, "");
-                setChebanca(val === "" ? 0 : Number(val));
-              }}
-                className="w-full p-2 pr-8 border rounded"
-              />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
-            </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Revolut</label>
-            <div className="relative mt-1">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={revolut}
-                onChange={(e) => {
-                const val = e.target.value.replace(/[^0-9.]/g, "");
-                setRevolut(val === "" ? 0 : Number(val));
-              }}
-                className="w-full p-2 pr-8 border rounded"
-              />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
-            </div>
-          </div>
+          {["CheBanca", "Revolut"].map((label, i) => {
+            const val = i === 0 ? chebanca : revolut;
+            const setter = i === 0 ? setChebanca : setRevolut;
+
+            return (
+              <div key={label}>
+                <label className="text-sm font-medium">{label}</label>
+                <div className="relative mt-1">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={val}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^0-9.]/g, "");
+                      setter(v === "" ? 0 : Number(v));
+                    }}
+                    className="w-full p-2 pr-8 border rounded"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        <div className="p-2 border rounded bg-gray-50 font-semibold text-center">
-          {formatEuro(saldoCalcolato)}
+        <div className="p-2 border rounded bg-gray-50 font-semibold text-center space-y-1">
+          <div className="text-xs text-gray-500">
+            Saldo al {lastUpdate ? lastUpdate.split(" ")[0] : "--/--/----"}
+          </div>
+          <div>{formatEuro(saldoCalcolato)}</div>
         </div>
 
         <button onClick={confermaSaldo} className="w-full p-2 bg-black text-white rounded">
@@ -264,7 +236,7 @@ export default function BudgetApp() {
 
           <div>
             <label className="text-sm font-medium">
-              Riserva in € al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}
+              Riserva desidera al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}
             </label>
             <div className="relative mt-1">
               <input
@@ -272,9 +244,9 @@ export default function BudgetApp() {
                 inputMode="decimal"
                 value={minimo}
                 onChange={(e) => {
-                const val = e.target.value.replace(/[^0-9.]/g, "");
-                setMinimo(val === "" ? 0 : Number(val));
-              }}
+                  const v = e.target.value.replace(/[^0-9.]/g, "");
+                  setMinimo(v === "" ? 0 : Number(v));
+                }}
                 className="w-full p-2 pr-8 border rounded"
               />
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
@@ -287,16 +259,18 @@ export default function BudgetApp() {
             Giorni restanti: <strong>{giorniRestanti}</strong>
           </p>
           <p>
-            Budget giornaliero: <strong className={statoClasse}>{formatEuro(budgetGiornaliero)}</strong>
+            Budget giornaliero su saldo: <strong>{formatEuro(budgetGiornalieroTotale)}</strong>
           </p>
           <p>
-            Previsione Saldo al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}:
-            <strong className={statoClasse}> {formatEuro(previsione)}</strong>
+            Budget giornaliero con riserva: <strong className={statoClasse}>{formatEuro(budgetGiornaliero)}</strong>
           </p>
-          <p className={`${statoClasse} text-sm font-semibold`}>
-            {scostamento >= 0
-              ? `+${formatEuro(scostamento)} sopra la riserva`
-              : `-${formatEuro(Math.abs(scostamento))} sotto la riserva`}
+          <p className={`text-sm ${statoClasse}`}>
+            {differenzaRiserva >= 0
+              ? `+${formatEuro(differenzaRiserva)} sopra la riserva`
+              : `-${formatEuro(Math.abs(differenzaRiserva))} sotto la riserva`}
+          </p>
+          <p className={`text-sm font-medium ${statoClasse}`}>
+            Riserva finale stimata: {formatEuro(minimo + differenzaRiserva)}
           </p>
         </div>
 
@@ -348,17 +322,9 @@ export default function BudgetApp() {
             Importa backup
           </button>
 
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={importData}
-            className="hidden"
-          />
+          <input type="file" ref={fileInputRef} onChange={importData} className="hidden" />
 
-          <button
-            onClick={exportData}
-            className="w-full p-2 bg-blue-600 text-white rounded"
-          >
+          <button onClick={exportData} className="w-full p-2 bg-blue-600 text-white rounded">
             Esporta backup
           </button>
         </div>
