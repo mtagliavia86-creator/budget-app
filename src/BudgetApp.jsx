@@ -1,334 +1,1189 @@
-import React from "react";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from 'react'
 
-// VERSIONE STABILE: 3.5
-// BREAKPOINT DI RIPRISTINO - NON MODIFICARE SENZA NUOVA VERSIONE
-export default function BudgetApp() {
-  const [saldo, setSaldo] = useState(0);
-  const [chebanca, setChebanca] = useState(0);
-  const [revolut, setRevolut] = useState(0);
-  const [targetDate, setTargetDate] = useState("");
-  const [minimo, setMinimo] = useState(0);
-  const [storico, setStorico] = useState([]);
-  const [lastUpdate, setLastUpdate] = useState(null);
+export default function SpeseMensiliApp() {
+  const APP_VERSION = '7.0'
+  const today = new Date()
 
-  const fileInputRef = useRef(null);
-  const [swipe, setSwipe] = useState({ index: null, x: 0, startX: 0 });
-
-  const formatEuro = (val) =>
-    new Intl.NumberFormat("it-IT", {
-      style: "currency",
-      currency: "EUR"
-    }).format(val || 0);
-
-  const saldoCalcolato = useMemo(() => {
-    return Number(chebanca || 0) + Number(revolut || 0);
-  }, [chebanca, revolut]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("budget-data");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setSaldo(parsed.saldo || 0);
-      setChebanca(parsed.chebanca || 0);
-      setRevolut(parsed.revolut || 0);
-      setTargetDate(parsed.targetDate || "");
-      setMinimo(parsed.minimo || 0);
-      setStorico(parsed.storico || []);
-      setLastUpdate(parsed.lastUpdate || null);
+  const [showModal, setShowModal] = useState(false)
+  const [selectedDay, setSelectedDay] = useState(null)
+  const [paidExpenses, setPaidExpenses] = useState(() => {
+    try {
+      const saved = localStorage.getItem('speseMensili-paidExpenses')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
     }
-  }, []);
+  })
+  const [expenses, setExpenses] = useState(() => {
+    try {
+      const saved = localStorage.getItem('speseMensili-expenses')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
 
-  useEffect(() => {
-    localStorage.setItem(
-      "budget-data",
-      JSON.stringify({ saldo, chebanca, revolut, targetDate, minimo, storico, lastUpdate })
-    );
-  }, [saldo, chebanca, revolut, targetDate, minimo, storico, lastUpdate]);
+  const [currentMonth, setCurrentMonth] = useState(
+    today.getMonth()
+  )
 
-  const formatTimestamp = (date) => {
-    const d = new Date(date);
-    const pad = (n) => n.toString().padStart(2, "0");
+  const [currentYear, setCurrentYear] = useState(
+    today.getFullYear()
+  )
 
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(
-      d.getHours()
-    )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  };
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [editingExpense, setEditingExpense] = useState(null)
+  const [pendingRecurringEdit, setPendingRecurringEdit] = useState(null)
+  const [showIconPicker, setShowIconPicker] = useState(false)
 
-  const confermaSaldo = () => {
-    const now = new Date();
-    const timestamp = formatTimestamp(now);
+  const fileInputRef = useRef(null)
 
-    setSaldo(saldoCalcolato);
-    setLastUpdate(timestamp);
+  const availableIcons = [
+    'amazon.png',
+    'apple.png',
+    'aruba.png',
+    'enel.png',
+    'google.png',
+    'iliad.png',
+    'now.png',
+    'para.png',
+    'prima.png',
+    'vodafone.png',
+    'youtube.png',
+  ]
 
-    setStorico([
-      ...storico,
-      { data: timestamp, raw: Date.now(), saldo: saldoCalcolato }
-    ]);
-  };
+  const [newExpense, setNewExpense] = useState({
+    title: '',
+    amount: '',
+    date: '',
+    recurrence: 'Singola',
+    icon: '',
+  })
 
-  const exportData = () => {
-    const data = { saldo, chebanca, revolut, targetDate, minimo, storico, lastUpdate };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `backup-budget-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const weekDays = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab']
 
-  const importData = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  const monthNames = [
+    'Gennaio',
+    'Febbraio',
+    'Marzo',
+    'Aprile',
+    'Maggio',
+    'Giugno',
+    'Luglio',
+    'Agosto',
+    'Settembre',
+    'Ottobre',
+    'Novembre',
+    'Dicembre',
+  ]
 
-    const reader = new FileReader();
+  const daysInMonth = new Date(
+    currentYear,
+    currentMonth + 1,
+    0
+  ).getDate()
+
+  const month = `${monthNames[currentMonth]} ${currentYear}`
+
+  const currentMonthExpenses = expenses.filter((expense) => {
+    const expenseDate = new Date(expense.date)
+
+    const expenseMonth = expenseDate.getMonth()
+    const expenseYear = expenseDate.getFullYear()
+
+    const validFrom = expense.validFrom
+      ? new Date(expense.validFrom)
+      : new Date(expense.date)
+
+    const validUntil = expense.validUntil
+      ? new Date(expense.validUntil)
+      : null
+
+    const currentMonthStart = new Date(
+      currentYear,
+      currentMonth,
+      1
+    )
+
+    const validFromMonth = new Date(
+      validFrom.getFullYear(),
+      validFrom.getMonth(),
+      1
+    )
+
+    if (currentMonthStart < validFromMonth) {
+      return false
+    }
+
+    if (validUntil) {
+      const validUntilMonth = new Date(
+        validUntil.getFullYear(),
+        validUntil.getMonth(),
+        1
+      )
+
+      if (currentMonthStart > validUntilMonth) {
+        return false
+      }
+    }
+
+    if (expense.recurrence === 'Singola') {
+      return (
+        expenseMonth === currentMonth &&
+        expenseYear === currentYear
+      )
+    }
+
+    if (expense.recurrence === 'Mensile') {
+      return (
+        currentYear > expenseYear ||
+        (currentYear === expenseYear &&
+          currentMonth >= expenseMonth)
+      )
+    }
+
+    if (expense.recurrence === 'Annuale') {
+      return (
+        currentMonth === expenseMonth &&
+        currentYear >= expenseYear
+      )
+    }
+
+    return false
+  })
+
+  const totalMonth = currentMonthExpenses.reduce(
+    (sum, item) => sum + item.amount,
+    0
+  )
+
+  const paidTotal = currentMonthExpenses
+    .filter((expense) => paidExpenses.includes(expense.id))
+    .reduce((sum, item) => sum + item.amount, 0)
+
+  const unpaidTotal = totalMonth - paidTotal
+
+  const getExpensesForDay = (day) => {
+    return currentMonthExpenses.filter((expense) => {
+      const expenseDay = new Date(expense.date).getDate()
+      return expenseDay === day
+    })
+  }
+
+  const selectedExpenses = selectedDay
+    ? getExpensesForDay(selectedDay)
+    : []
+
+  const goToToday = () => {
+    setSelectedDay(null)
+    setCurrentMonth(today.getMonth())
+    setCurrentYear(today.getFullYear())
+  }
+
+  const changeMonth = (direction) => {
+    setSelectedDay(null)
+
+    if (direction === 'prev') {
+      if (currentMonth === 0) {
+        setCurrentMonth(11)
+        setCurrentYear((prev) => prev - 1)
+      } else {
+        setCurrentMonth((prev) => prev - 1)
+      }
+    }
+
+    if (direction === 'next') {
+      if (currentMonth === 11) {
+        setCurrentMonth(0)
+        setCurrentYear((prev) => prev + 1)
+      } else {
+        setCurrentMonth((prev) => prev + 1)
+      }
+    }
+  }
+
+  const openNewExpenseModal = () => {
+    setEditingExpense(null)
+
+    setNewExpense({
+      title: '',
+      amount: '',
+      date: '',
+      recurrence: 'Singola',
+      icon: '',
+    })
+
+    setShowModal(true)
+  }
+
+  const startEditingExpense = (expense) => {
+    setEditingExpense(expense)
+
+    const expenseDay = new Date(expense.date).getDate()
+
+    const currentOccurrenceDate = `${currentYear}-${String(
+      currentMonth + 1
+    ).padStart(2, '0')}-${String(expenseDay).padStart(2, '0')}`
+
+    setNewExpense({
+      title: expense.title,
+      amount: expense.amount,
+      date: currentOccurrenceDate,
+      recurrence: expense.recurrence,
+      icon: expense.icon || '',
+    })
+
+    setShowModal(true)
+  }
+
+  const applyRecurringEdit = (mode) => {
+    if (!editingExpense || !pendingRecurringEdit) {
+      return
+    }
+
+    const expenseDay = new Date(editingExpense.date).getDate()
+
+    const currentOccurrenceDate = new Date(
+      currentYear,
+      currentMonth,
+      expenseDay
+    )
+
+    const previousMonth = new Date(currentOccurrenceDate)
+    previousMonth.setMonth(previousMonth.getMonth() - 1)
+
+    const nextMonth = new Date(currentOccurrenceDate)
+    nextMonth.setMonth(nextMonth.getMonth() + 1)
+
+    if (mode === 'single') {
+      setExpenses((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id === editingExpense.id) {
+            return {
+              ...item,
+              validUntil: previousMonth.toISOString(),
+            }
+          }
+
+          return item
+        })
+
+        return updated.concat([
+          {
+            ...editingExpense,
+            id: Date.now(),
+            recurrence: 'Singola',
+            title: pendingRecurringEdit.title,
+            amount: Number(String(pendingRecurringEdit.amount).replace(',', '.')),
+            date: pendingRecurringEdit.date,
+            validFrom: pendingRecurringEdit.date,
+            validUntil: pendingRecurringEdit.date,
+          },
+          {
+            ...editingExpense,
+            id: Date.now() + 1,
+            title: editingExpense.title,
+            amount: editingExpense.amount,
+            date: editingExpense.date,
+            recurrence: editingExpense.recurrence,
+            validFrom: nextMonth.toISOString(),
+          },
+        ])
+      })
+    }
+
+    if (mode === 'future') {
+      setExpenses((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id === editingExpense.id) {
+            return {
+              ...item,
+              validUntil: previousMonth.toISOString(),
+            }
+          }
+
+          return item
+        })
+
+        return updated.concat({
+          ...editingExpense,
+          id: Date.now(),
+          title: pendingRecurringEdit.title,
+          amount: Number(String(pendingRecurringEdit.amount).replace(',', '.')),
+          date: pendingRecurringEdit.date,
+          recurrence: pendingRecurringEdit.recurrence,
+          icon: pendingRecurringEdit.icon,
+          validFrom: currentOccurrenceDate.toISOString(),
+        })
+      })
+    }
+
+    setPendingRecurringEdit(null)
+    setEditingExpense(null)
+    setShowModal(false)
+  }
+
+  const saveExpense = () => {
+    if (
+      !newExpense.title ||
+      !newExpense.amount ||
+      !newExpense.date
+    ) {
+      return
+    }
+
+    if (editingExpense) {
+      const isRecurring = editingExpense.recurrence !== 'Singola'
+
+      if (isRecurring) {
+        setPendingRecurringEdit({ ...newExpense })
+        return
+      }
+
+      setExpenses((prev) =>
+        prev.map((item) => {
+          if (item.id === editingExpense.id) {
+            return {
+              ...item,
+              title: newExpense.title,
+              amount: Number(String(newExpense.amount).replace(',', '.')),
+              date: newExpense.date,
+              recurrence: newExpense.recurrence,
+              icon: newExpense.icon,
+              validFrom: newExpense.date,
+            }
+          }
+
+          return item
+        })
+      )
+    } else {
+      const createdExpense = {
+        id: Date.now(),
+        seriesId: Date.now(),
+        title: newExpense.title,
+        amount: Number(String(newExpense.amount).replace(',', '.')),
+        date: newExpense.date,
+        recurrence: newExpense.recurrence,
+        icon: newExpense.icon,
+        validFrom: newExpense.date,
+      }
+
+      setExpenses((prev) => [...prev, createdExpense])
+    }
+
+    setNewExpense({
+      title: '',
+      amount: '',
+      date: '',
+      recurrence: 'Singola',
+      icon: '',
+    })
+
+    setEditingExpense(null)
+    setShowModal(false)
+  }
+
+  const deleteExpense = (expense, mode = 'single') => {
+    const expenseDay = new Date(expense.date).getDate()
+
+    const expenseDate = new Date(
+      currentYear,
+      currentMonth,
+      expenseDay
+    )
+
+    const previousMonth = new Date(expenseDate)
+    previousMonth.setMonth(previousMonth.getMonth() - 1)
+
+    const nextMonth = new Date(expenseDate)
+    nextMonth.setMonth(nextMonth.getMonth() + 1)
+
+    if (mode === 'all') {
+      setExpenses((prev) =>
+        prev.filter((item) => item.seriesId !== expense.seriesId)
+      )
+    }
+
+    if (mode === 'single') {
+      setExpenses((prev) => {
+        const updated = prev.map((item) => {
+          if (item.id === expense.id) {
+            return {
+              ...item,
+              validUntil: previousMonth.toISOString(),
+            }
+          }
+
+          return item
+        })
+
+        return updated.concat({
+          ...expense,
+          id: Date.now(),
+          validFrom: nextMonth.toISOString(),
+        })
+      })
+    }
+
+    if (mode === 'future') {
+      setExpenses((prev) =>
+        prev.map((item) => {
+          if (item.id === expense.id) {
+            return {
+              ...item,
+              validUntil: expenseDate.toISOString(),
+            }
+          }
+
+          return item
+        })
+      )
+    }
+
+    if (mode === 'previous') {
+      setExpenses((prev) =>
+        prev.map((item) => {
+          if (item.id === expense.id) {
+            return {
+              ...item,
+              validFrom: expenseDate.toISOString(),
+            }
+          }
+
+          return item
+        })
+      )
+    }
+
+    setPaidExpenses((prev) =>
+      prev.filter((id) => id !== expense.id)
+    )
+
+    setDeleteTarget(null)
+  }
+
+  const exportBackup = () => {
+    const backupData = {
+      version: APP_VERSION,
+      exportDate: new Date().toISOString(),
+      expenses,
+      paidExpenses,
+    }
+
+    const blob = new Blob(
+      [JSON.stringify(backupData, null, 2)],
+      {
+        type: 'application/json',
+      }
+    )
+
+    const url = URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+    link.href = url
+    const exportDate = new Date()
+
+    const exportTimestamp = `${exportDate.getFullYear()}-${String(
+      exportDate.getMonth() + 1
+    ).padStart(2, '0')}-${String(
+      exportDate.getDate()
+    ).padStart(2, '0')}`
+
+    link.download = `speseMensili-${exportTimestamp}.json`
+
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    URL.revokeObjectURL(url)
+  }
+
+  const importBackup = (event) => {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    const reader = new FileReader()
 
     reader.onload = (e) => {
       try {
-        const parsed = JSON.parse(e.target.result);
+        const data = JSON.parse(e.target.result)
 
-        const map = new Map();
-        storico.forEach((i) => map.set(i.data, i));
-        (parsed.storico || []).forEach((i) => map.set(i.data, i));
+        if (!data.expenses || !data.paidExpenses) {
+          alert('Backup non valido')
+          return
+        }
 
-        const merged = Array.from(map.values()).sort((a, b) => {
-          if (a.raw && b.raw) return a.raw - b.raw;
-          return 0;
-        });
-
-        setStorico(merged);
-        setSaldo(parsed.saldo ?? saldo);
-        setChebanca(parsed.chebanca ?? chebanca);
-        setRevolut(parsed.revolut ?? revolut);
-        setTargetDate(parsed.targetDate ?? targetDate);
-        setMinimo(parsed.minimo ?? minimo);
-        setLastUpdate(parsed.lastUpdate ?? lastUpdate);
-
-        alert("Backup unito correttamente");
-      } catch (err) {
-        console.error(err);
-        alert("Errore durante l'import");
+        setExpenses(data.expenses)
+        setPaidExpenses(data.paidExpenses)
+      } catch {
+        alert('Errore durante importazione backup')
       }
-    };
-
-    reader.readAsText(file);
-  };
-
-  const rimuoviVoceStorico = (index) => {
-    const updated = [...storico];
-    updated.splice(index, 1);
-    setStorico(updated);
-
-    if (navigator.vibrate) navigator.vibrate(15);
-  };
-
-  const handleTouchStart = (e, index) => {
-    setSwipe({ index, x: 0, startX: e.touches[0].clientX });
-  };
-
-  const handleTouchMove = (e) => {
-    if (swipe.index === null) return;
-    const diff = e.touches[0].clientX - swipe.startX;
-    if (diff < 0) {
-      setSwipe((prev) => ({ ...prev, x: Math.max(diff, -120) }));
     }
-  };
 
-  const handleTouchEnd = (index) => {
-    if (swipe.x < -80) {
-      rimuoviVoceStorico(index);
-    }
-    setSwipe({ index: null, x: 0, startX: 0 });
-  };
+    reader.readAsText(file)
+  }
 
-  const giorniRestanti = useMemo(() => {
-    if (!targetDate) return 0;
-    const diff = Math.ceil((new Date(targetDate) - new Date()) / 86400000);
-    return diff > 0 ? diff : 0;
-  }, [targetDate]);
+  useEffect(() => {
+    localStorage.setItem(
+      'speseMensili-expenses',
+      JSON.stringify(expenses)
+    )
+  }, [expenses])
 
-  const budgetGiornaliero = useMemo(() => {
-    if (giorniRestanti === 0) return 0;
-    return (saldo - minimo) / giorniRestanti;
-  }, [saldo, minimo, giorniRestanti]);
+  useEffect(() => {
+    localStorage.setItem(
+      'speseMensili-paidExpenses',
+      JSON.stringify(paidExpenses)
+    )
+  }, [paidExpenses])
 
-  const budgetGiornalieroTotale = useMemo(() => {
-    if (giorniRestanti === 0) return 0;
-    return saldo / giorniRestanti;
-  }, [saldo, giorniRestanti]);
+  const togglePaid = (expenseId) => {
+    setPaidExpenses((prev) => {
+      if (prev.includes(expenseId)) {
+        return prev.filter((id) => id !== expenseId)
+      }
 
-  const totaleStimato = budgetGiornaliero * giorniRestanti;
-  const differenzaRiserva = totaleStimato - minimo;
-
-  const percentualeRiserva = minimo > 0 ? (differenzaRiserva / minimo) * 100 : 0;
-
-  const statoClasse =
-    differenzaRiserva >= 0
-      ? "text-green-600"
-      : percentualeRiserva >= -25
-      ? "text-orange-500"
-      : "text-red-600";
-
-  const speseGiornaliere = useMemo(() => {
-    if (storico.length < 2) return [];
-
-    return storico.slice(1).map((curr, i) => ({
-      data: curr.data,
-      spesa: storico[i].saldo - curr.saldo,
-      index: i + 1
-    }));
-  }, [storico]);
+      return [...prev, expenseId]
+    })
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-md space-y-4">
-        <h1 className="text-xl font-bold text-center">Controllo budget giornaliero</h1>
+    <div className="min-h-screen bg-zinc-100 text-zinc-900 p-4 flex justify-center">
+      <div className="w-full max-w-md">
+        <div className="backdrop-blur-xl bg-white/70 border border-white/50 rounded-3xl p-5 shadow-sm mb-4">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Spese Mensili
+          </h1>
 
-        <div className="grid grid-cols-2 gap-3">
-          {["CheBanca", "Revolut"].map((label, i) => {
-            const val = i === 0 ? chebanca : revolut;
-            const setter = i === 0 ? setChebanca : setRevolut;
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-3">
+              <button
+                onClick={() => changeMonth('prev')}
+                className="w-10 h-10 rounded-full bg-zinc-100 border border-zinc-200 text-lg font-semibold active:scale-95 transition-transform"
+              >
+                ←
+              </button>
 
-            return (
-              <div key={label}>
-                <label className="text-sm font-medium">{label}</label>
-                <div className="relative mt-1">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={val}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/[^0-9.]/g, "");
-                      setter(v === "" ? 0 : Number(v));
-                    }}
-                    className="w-full p-2 pr-8 border rounded"
-                  />
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
-                </div>
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-sm font-medium text-zinc-600">
+                  {month}
+                </p>
+
+                <button
+                  onClick={goToToday}
+                  className="h-9 px-4 rounded-full bg-blue-600 text-white text-sm font-semibold active:scale-95 transition-transform shadow-sm"
+                >
+                  Oggi
+                </button>
               </div>
-            );
-          })}
-        </div>
 
-        <div className="p-2 border rounded bg-gray-50 font-semibold text-center space-y-1">
-          <div className="text-xs text-gray-500">
-            Saldo al {lastUpdate ? lastUpdate.split(" ")[0] : "--/--/----"}
-          </div>
-          <div>{formatEuro(saldoCalcolato)}</div>
-        </div>
+              <button
+                onClick={() => changeMonth('next')}
+                className="w-10 h-10 rounded-full bg-zinc-100 border border-zinc-200 text-lg font-semibold active:scale-95 transition-transform"
+              >
+                →
+              </button>
+            </div>
 
-        <button onClick={confermaSaldo} className="w-full p-2 bg-black text-white rounded">
-          Conferma saldo
-        </button>
+            <div className="flex items-center justify-between gap-3 mt-1">
+              <div>
+                <p className="text-4xl font-bold">
+                  € {totalMonth.toFixed(2)}
+                </p>
 
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium">Data Stipendio</label>
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              className="w-full p-2 border rounded mt-1"
-            />
-          </div>
+                <p className="text-sm text-zinc-500 mt-1">
+                  Totale previsto del mese
+                </p>
+              </div>
 
-          <div>
-            <label className="text-sm font-medium">
-              Riserva desidera al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}
-            </label>
-            <div className="relative mt-1">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={minimo}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^0-9.]/g, "");
-                  setMinimo(v === "" ? 0 : Number(v));
-                }}
-                className="w-full p-2 pr-8 border rounded"
-              />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
+              <button
+                onClick={openNewExpenseModal}
+                className="shrink-0 h-14 px-5 rounded-2xl bg-red-600 text-white text-sm font-semibold shadow-lg active:scale-95 transition-transform"
+              >
+                Nuova Spesa
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <div className="bg-green-100 border border-green-200 rounded-2xl p-3">
+                <p className="text-xs font-medium text-green-700 uppercase tracking-wide">
+                  Pagato
+                </p>
+
+                <p className="text-2xl font-bold text-green-700 mt-1">
+                  € {paidTotal.toFixed(2)}
+                </p>
+              </div>
+
+              <div className="bg-red-100 border border-red-200 rounded-2xl p-3">
+                <p className="text-xs font-medium text-red-700 uppercase tracking-wide">
+                  Da pagare
+                </p>
+
+                <p className="text-2xl font-bold text-red-700 mt-1">
+                  € {unpaidTotal.toFixed(2)}
+                </p>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="space-y-2">
-          <p>
-            Giorni restanti: <strong>{giorniRestanti}</strong>
-          </p>
-          <p>
-            Budget giornaliero su saldo: <strong>{formatEuro(budgetGiornalieroTotale)}</strong>
-          </p>
-          <p>
-            Budget giornaliero con riserva: <strong className={statoClasse}>{formatEuro(budgetGiornaliero)}</strong>
-          </p>
-          <p className={`text-sm ${statoClasse}`}>
-            {differenzaRiserva >= 0
-              ? `+${formatEuro(differenzaRiserva)} sopra la riserva`
-              : `-${formatEuro(Math.abs(differenzaRiserva))} sotto la riserva`}
-          </p>
-          <p className={`text-sm font-medium ${statoClasse}`}>
-            Riserva finale stimata: {formatEuro(minimo + differenzaRiserva)}
-          </p>
-        </div>
+        <div className="grid grid-cols-7 gap-2">
+          {Array.from({
+            length: new Date(currentYear, currentMonth, 1).getDay(),
+          }).map((_, index) => (
+            <div key={`empty-${index}`} />
+          ))}
 
-        {speseGiornaliere.length > 0 && (
-          <div className="pt-4">
-            <h2 className="font-semibold mb-2">Storico spese</h2>
-            <div className="space-y-2 text-sm">
-              {[...speseGiornaliere].reverse().map((s, idx) => {
-                const realIndex = speseGiornaliere.length - 1 - idx;
-                return (
-                  <div
-                    key={realIndex}
-                    onTouchStart={(e) => handleTouchStart(e, realIndex)}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={() => handleTouchEnd(realIndex)}
-                    className="relative overflow-hidden rounded-xl"
-                  >
-                    <div className="absolute inset-0 bg-red-500 flex items-center justify-end pr-4 text-white font-bold">
-                      elimina
-                    </div>
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1
+            const dayExpenses = getExpensesForDay(day)
 
-                    <div
-                      className="relative z-10 flex justify-between items-center p-2 bg-white transition-transform duration-150"
-                      style={{
-                        transform:
-                          swipe.index === realIndex
-                            ? `translateX(${swipe.x}px)`
-                            : "translateX(0px)"
-                      }}
-                    >
-                      <span>{s.data?.replace(/-/g, "/")}</span>
+            const totalDay = dayExpenses.reduce(
+              (sum, item) => sum + item.amount,
+              0
+            )
 
-                      <span className={`${s.spesa >= 0 ? "text-red-600" : "text-green-600"} font-semibold`}>
-                        {`${s.spesa >= 0 ? "-" : "+"}${formatEuro(Math.abs(s.spesa))}`}
+            const weekDay = new Date(
+              currentYear,
+              currentMonth,
+              day
+            ).getDay()
+
+            const isToday =
+              currentYear === today.getFullYear() &&
+              currentMonth === today.getMonth() &&
+              day === today.getDate()
+
+            let bgClass = 'bg-green-50 border-green-100'
+
+            const hasExpenses = dayExpenses.length > 0
+
+            const allPaid =
+              hasExpenses &&
+              dayExpenses.every((expense) =>
+                paidExpenses.includes(expense.id)
+              )
+
+            if (hasExpenses) {
+              bgClass = allPaid
+                ? 'bg-green-100 border-green-200'
+                : 'bg-red-100 border-red-200'
+            }
+
+            return (
+              <button
+                key={day}
+                onClick={() => setSelectedDay(day)}
+                className={`rounded-xl p-1.5 min-h-[58px] border shadow-sm text-left active:scale-[0.98] transition-transform ${bgClass} ${isToday ? 'ring-2 ring-blue-500 border-blue-500' : ''}`}
+              >
+                <div className="mb-1">
+                  <p className="text-[8px] uppercase tracking-wide text-zinc-400 font-medium mb-0.5">
+                    {weekDays[weekDay]}
+                  </p>
+
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs font-semibold">
+                      {day}
+                    </span>
+                  </div>
+
+                  {totalDay > 0 && (
+                    <div className="mt-1">
+                      <span className="text-[10px] font-bold text-zinc-800 block leading-tight">
+                        €{totalDay.toFixed(2)}
                       </span>
                     </div>
+                  )}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mt-6 bg-white/70 backdrop-blur-xl border border-white/50 rounded-3xl p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold">
+                Spese del mese
+              </h2>
+
+              <p className="text-sm text-zinc-500 mt-1">
+                {currentMonthExpenses.length} {currentMonthExpenses.length === 1 ? 'spesa prevista' : 'spese previste'}
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 pr-1">
+            {currentMonthExpenses.length > 0 ? (
+              [...currentMonthExpenses]
+                .sort((a, b) => {
+                  return (
+                    new Date(a.date).getDate() -
+                    new Date(b.date).getDate()
+                  )
+                })
+                .map((expense) => {
+                  const expenseDay = new Date(
+                    expense.date
+                  ).getDate()
+
+                  const isPaid = paidExpenses.includes(expense.id)
+
+                  return (
+                    <div
+                      key={`month-${expense.id}`}
+                      className={`rounded-xl px-3 py-2 border flex items-center justify-between gap-2 ${
+                        isPaid
+                          ? 'bg-green-100 border-green-200'
+                          : 'bg-red-100 border-red-200'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-[10px] font-bold text-zinc-500 bg-white px-1.5 py-0.5 rounded-md border border-zinc-200 whitespace-nowrap">
+                            {expenseDay} {monthNames[currentMonth].slice(0, 3)}
+                          </span>
+
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {expense.icon && (
+                              <img
+                                src={`/icons/${expense.icon}`}
+                                alt="Icona"
+                                className="w-4 h-4 object-contain shrink-0"
+                              />
+                            )}
+
+                            <p className="font-medium text-xs truncate">
+                              {expense.title}
+                            </p>
+                          </div>
+
+                          <p className="text-[10px] text-zinc-500 whitespace-nowrap">
+                            ({expense.recurrence})
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0 flex items-center gap-2">
+                        <p
+                          className={`text-xs font-bold whitespace-nowrap ${
+                            isPaid
+                              ? 'text-green-700 line-through'
+                              : 'text-zinc-900'
+                          }`}
+                        >
+                          € {expense.amount}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                })
+            ) : (
+              <div className="bg-zinc-100 rounded-2xl p-5 text-center text-sm text-zinc-500 border border-zinc-200">
+                Nessuna spesa presente nel mese
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mt-6 pb-24">
+          <button
+            onClick={exportBackup}
+            className="h-12 rounded-2xl bg-zinc-900 text-white font-semibold active:scale-[0.98] transition-transform"
+          >
+            Esporta Backup
+          </button>
+
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json"
+              onChange={importBackup}
+              className="hidden"
+            />
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full h-12 rounded-2xl bg-zinc-200 text-zinc-800 font-semibold active:scale-[0.98] transition-transform"
+            >
+              Importa Backup
+            </button>
+          </div>
+        </div>
+
+        {selectedDay && (
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-end justify-center z-50">
+            <div className="w-full max-w-md bg-white rounded-t-3xl p-5 shadow-2xl max-h-[75vh] overflow-y-auto">
+              <div className="flex items-start justify-between gap-3 mb-5">
+                <div>
+                  <p className="text-sm text-zinc-500">
+                    Dettaglio giorno
+                  </p>
+
+                  <div className="flex items-center gap-3 mt-1">
+                    <h2 className="text-2xl font-semibold">
+                      {selectedDay} {monthNames[currentMonth]}
+                    </h2>
+
+                    <button
+                      onClick={() => {
+                        setEditingExpense(null)
+
+                        setNewExpense({
+                          title: '',
+                          amount: '',
+                          date: `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`,
+                          recurrence: 'Singola',
+                        })
+
+                        setShowModal(true)
+                      }}
+                      className="h-9 px-3 rounded-xl bg-red-600 text-white text-xs font-semibold shadow-sm active:scale-95 transition-transform"
+                    >
+                      Nuova Spesa
+                    </button>
                   </div>
-                );
-              })}
+                </div>
+
+                <button
+                  onClick={() => setSelectedDay(null)}
+                  className="text-zinc-500 text-sm"
+                >
+                  Chiudi
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {selectedExpenses.length > 0 ? (
+                  selectedExpenses.map((expense) => {
+                    const isPaid = paidExpenses.includes(expense.id)
+
+                    return (
+                      <div
+                        key={expense.id}
+                        className={`rounded-xl px-3 py-2 border transition-all ${
+                          isPaid
+                            ? 'bg-green-100 border-green-300'
+                            : 'bg-zinc-100 border-zinc-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {expense.icon && (
+                                <img
+                                  src={`/icons/${expense.icon}`}
+                                  alt="Icona"
+                                  className="w-5 h-5 object-contain shrink-0"
+                                />
+                              )}
+
+                              <p className="font-medium text-sm truncate">
+                                {expense.title}
+                              </p>
+                            </div>
+
+                            <p className="text-[10px] text-zinc-500">
+                              {expense.recurrence}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <p
+                              className={`text-sm font-bold whitespace-nowrap ${
+                                isPaid
+                                  ? 'text-green-700 line-through'
+                                  : ''
+                              }`}
+                            >
+                              € {expense.amount}
+                            </p>
+
+                            <button
+                              onClick={() => togglePaid(expense.id)}
+                              className="h-8 px-2 rounded-lg text-[10px] font-medium bg-green-600 text-white whitespace-nowrap"
+                            >
+                              {isPaid ? 'Pagata' : 'Paga'}
+                            </button>
+
+                            <button
+                              onClick={() =>
+                                startEditingExpense(expense)
+                              }
+                              className="h-8 px-2 rounded-lg text-[10px] font-medium bg-blue-100 text-blue-700 whitespace-nowrap"
+                            >
+                              Modifica
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                if (expense.recurrence === 'Singola') {
+                                  deleteExpense(expense)
+                                } else {
+                                  setDeleteTarget(expense)
+                                }
+                              }}
+                              className="h-8 px-2 rounded-lg text-[10px] font-medium bg-red-100 text-red-700 whitespace-nowrap"
+                            >
+                              Elimina
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="bg-zinc-100 rounded-2xl p-6 text-center text-zinc-500 border border-zinc-200">
+                    Nessuna spesa prevista
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
 
-        <div className="space-y-2">
-          <button
-            onClick={() => fileInputRef.current.click()}
-            className="w-full p-2 bg-gray-700 text-white rounded"
-          >
-            Importa backup
-          </button>
+        {pendingRecurringEdit && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[70] px-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl">
+              <h3 className="text-lg font-semibold mb-2">
+                Modifica ricorrenza
+              </h3>
 
-          <input type="file" ref={fileInputRef} onChange={importData} className="hidden" />
+              <p className="text-sm text-zinc-600 leading-relaxed mb-5">
+                Come vuoi modificare questa ricorrenza?
+              </p>
 
-          <button onClick={exportData} className="w-full p-2 bg-blue-600 text-white rounded">
-            Esporta backup
-          </button>
-        </div>
+              <div className="space-y-3">
+                <button
+                  onClick={() => applyRecurringEdit('single')}
+                  className="w-full rounded-2xl bg-blue-600 text-white py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Solo questa
+                </button>
+
+                <button
+                  onClick={() => applyRecurringEdit('future')}
+                  className="w-full rounded-2xl bg-orange-500 text-white py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Questa e successive
+                </button>
+
+                <button
+                  onClick={() => setPendingRecurringEdit(null)}
+                  className="w-full rounded-2xl bg-zinc-200 text-zinc-700 py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Annulla
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {deleteTarget && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] px-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl p-5 shadow-2xl">
+              <h3 className="text-lg font-semibold mb-2">
+                Elimina spesa ricorrente
+              </h3>
+
+              <p className="text-sm text-zinc-600 leading-relaxed mb-5">
+                Come vuoi eliminare questa ricorrenza?
+              </p>
+
+              <div className="space-y-3">
+                <button
+                  onClick={() => deleteExpense(deleteTarget, 'single')}
+                  className="w-full rounded-2xl bg-blue-600 text-white py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Solo questa
+                </button>
+
+                <button
+                  onClick={() => deleteExpense(deleteTarget, 'future')}
+                  className="w-full rounded-2xl bg-orange-500 text-white py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Solo future
+                </button>
+
+                <button
+                  onClick={() => deleteExpense(deleteTarget, 'previous')}
+                  className="w-full rounded-2xl bg-orange-500 text-white py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Solo precedenti
+                </button>
+
+                <button
+                  onClick={() => deleteExpense(deleteTarget, 'all')}
+                  className="w-full rounded-2xl bg-red-600 text-white py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Tutte
+                </button>
+
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="w-full rounded-2xl bg-zinc-200 text-zinc-700 py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Annulla
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showIconPicker && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end justify-center z-[80]">
+            <div className="w-full max-w-md bg-white rounded-t-3xl p-5 shadow-2xl">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-lg font-semibold">
+                  Seleziona Icona
+                </h3>
+
+                <button
+                  onClick={() => setShowIconPicker(false)}
+                  className="text-sm text-zinc-500"
+                >
+                  Chiudi
+                </button>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                {availableIcons.map((icon) => (
+                  <button
+                    key={icon}
+                    onClick={() => {
+                      setNewExpense((prev) => ({
+                        ...prev,
+                        icon,
+                      }))
+
+                      setShowIconPicker(false)
+                    }}
+                    className={`aspect-square rounded-2xl border flex items-center justify-center p-3 active:scale-95 transition-transform ${
+                      newExpense.icon === icon
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-zinc-200 bg-zinc-50'
+                    }`}
+                  >
+                    <img
+                      src={`/icons/${icon}`}
+                      alt={icon}
+                      className="w-full h-full object-contain"
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showModal && (
+          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-end justify-center z-50">
+            <div className="w-full max-w-md bg-white rounded-t-3xl p-5 shadow-2xl animate-in slide-in-from-bottom duration-300">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-xl font-semibold">
+                  {editingExpense
+                    ? 'Modifica Spesa'
+                    : 'Nuova Spesa'}
+                </h2>
+
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="text-zinc-500 text-sm"
+                >
+                  Chiudi
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 w-full overflow-hidden">
+                <input
+                  type="text"
+                  placeholder="Nome spesa"
+                  value={newExpense.title}
+                  onChange={(e) =>
+                    setNewExpense((prev) => ({
+                      ...prev,
+                      title: e.target.value,
+                    }))
+                  }
+                  className="flex-1 min-w-0 rounded-2xl border border-zinc-200 px-4 py-3 outline-none"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setShowIconPicker(true)}
+                  className="shrink-0 w-12 h-12 rounded-2xl border border-zinc-200 bg-zinc-100 text-xl active:scale-95 transition-transform overflow-hidden flex items-center justify-center"
+                >
+                  {newExpense.icon ? (
+                    <img
+                      src={`/icons/${newExpense.icon}`}
+                      alt="Icona"
+                      className="w-8 h-8 object-contain"
+                    />
+                  ) : (
+                    '＋'
+                  )}
+                </button>
+              </div>
+
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Importo"
+                  value={newExpense.amount}
+                  onChange={(e) =>
+                    setNewExpense((prev) => ({
+                      ...prev,
+                      amount: e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.'),
+                    }))
+                  }
+                  className="w-full min-w-0 rounded-2xl border border-zinc-200 px-3 py-3 outline-none appearance-none bg-white text-sm"
+                />
+
+                <input
+                  type="date"
+                  value={newExpense.date}
+                  onChange={(e) =>
+                    setNewExpense((prev) => ({
+                      ...prev,
+                      date: e.target.value,
+                    }))
+                  }
+                  className="w-full min-w-0 rounded-2xl border border-zinc-200 px-2 py-3 outline-none appearance-none bg-white text-sm"
+                />
+
+                <select
+                  className="w-full rounded-2xl border border-zinc-200 px-4 py-3 outline-none bg-white"
+                  value={newExpense.recurrence}
+                  onChange={(e) =>
+                    setNewExpense((prev) => ({
+                      ...prev,
+                      recurrence: e.target.value,
+                    }))
+                  }
+                >
+                  <option>Singola</option>
+                  <option>Mensile</option>
+                  <option>Annuale</option>
+                </select>
+
+                <button
+                  onClick={saveExpense}
+                  className="w-full bg-black text-white rounded-2xl py-3 font-medium active:scale-[0.98] transition-transform"
+                >
+                  Salva Spesa
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
-  );
+  )
 }
