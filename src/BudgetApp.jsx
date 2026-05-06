@@ -274,7 +274,7 @@ export default function SpeseMensiliApp() {
             id: Date.now(),
             recurrence: 'Singola',
             title: pendingRecurringEdit.title,
-            amount: Number(String(pendingRecurringEdit.amount).replace(',', '.')),
+            amount: parseAmount(pendingRecurringEdit.amount),
             date: pendingRecurringEdit.date,
             validFrom: pendingRecurringEdit.date,
             validUntil: pendingRecurringEdit.date,
@@ -309,7 +309,7 @@ export default function SpeseMensiliApp() {
           ...editingExpense,
           id: Date.now(),
           title: pendingRecurringEdit.title,
-          amount: Number(String(pendingRecurringEdit.amount).replace(',', '.')),
+          amount: parseAmount(pendingRecurringEdit.amount),
           date: pendingRecurringEdit.date,
           recurrence: pendingRecurringEdit.recurrence,
           icon: pendingRecurringEdit.icon,
@@ -346,7 +346,7 @@ export default function SpeseMensiliApp() {
             return {
               ...item,
               title: newExpense.title,
-              amount: Number(String(newExpense.amount).replace(',', '.')),
+              amount: parseAmount(newExpense.amount),
               date: newExpense.date,
               recurrence: newExpense.recurrence,
               icon: newExpense.icon,
@@ -362,7 +362,7 @@ export default function SpeseMensiliApp() {
         id: Date.now(),
         seriesId: Date.now(),
         title: newExpense.title,
-        amount: Number(String(newExpense.amount).replace(',', '.')),
+        amount: parseAmount(newExpense.amount),
         date: newExpense.date,
         recurrence: newExpense.recurrence,
         icon: newExpense.icon,
@@ -540,6 +540,16 @@ export default function SpeseMensiliApp() {
       JSON.stringify(paidExpenses)
     )
   }, [paidExpenses])
+
+  const normalizeAmount = (value) => {
+    return String(value)
+      .replace(/,/g, '.')
+      .replace(/[^0-9.]/g, '')
+  }
+
+  const parseAmount = (value) => {
+    return Number(normalizeAmount(value))
+  }
 
   const togglePaid = (expenseId) => {
     setPaidExpenses((prev) => {
@@ -1140,7 +1150,7 @@ export default function SpeseMensiliApp() {
                   onChange={(e) =>
                     setNewExpense((prev) => ({
                       ...prev,
-                      amount: e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.'),
+                      amount: normalizeAmount(e.target.value),
                     }))
                   }
                   className="w-full min-w-0 rounded-2xl border border-zinc-200 px-3 py-3 outline-none appearance-none bg-white text-sm"
