@@ -137,9 +137,12 @@ export default function BudgetApp() {
   };
 
   const handleTouchEnd = (index) => {
-    if (swipe.x < -80) {
-      rimuoviVoceStorico(index);
+    // reveal del tasto elimina invece di cancellazione immediata
+    if (swipe.x < -60) {
+      setSwipe({ index, x: -88, startX: 0 });
+      return;
     }
+
     setSwipe({ index: null, x: 0, startX: 0 });
   };
 
@@ -288,12 +291,18 @@ export default function BudgetApp() {
                     onTouchEnd={() => handleTouchEnd(realIndex)}
                     className="relative overflow-hidden rounded-xl"
                   >
-                    <div className="absolute inset-0 bg-red-500 flex items-center justify-end pr-4 text-white font-bold">
-                      elimina
-                    </div>
+                    <button
+                      onClick={() => {
+                        rimuoviVoceStorico(realIndex);
+                        setSwipe({ index: null, x: 0, startX: 0 });
+                      }}
+                      className="absolute inset-y-0 right-0 w-24 bg-red-500 flex items-center justify-center text-white font-semibold active:bg-red-600"
+                    >
+                      🗑️
+                    </button>
 
                     <div
-                      className="relative z-10 flex justify-between items-center p-2 bg-white transition-transform duration-150"
+                      className="relative z-10 flex justify-between items-center p-2 bg-white transition-transform duration-200 ease-out"
                       style={{
                         transform:
                           swipe.index === realIndex
