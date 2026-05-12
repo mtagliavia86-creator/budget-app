@@ -1,7 +1,7 @@
 import React from "react";
 import { useState, useMemo, useEffect, useRef } from "react";
 
-// VERSIONE STABILE: 3.5
+// VERSIONE STABILE: 4.0 GM
 // BREAKPOINT DI RIPRISTINO - NON MODIFICARE SENZA NUOVA VERSIONE
 export default function BudgetApp() {
   const [saldo, setSaldo] = useState(0);
@@ -157,20 +157,24 @@ export default function BudgetApp() {
     return (saldo - minimo) / giorniRestanti;
   }, [saldo, minimo, giorniRestanti]);
 
+  const budgetMensileNettoRiserva = useMemo(() => {
+    return saldo - minimo;
+  }, [saldo, minimo]);
+
   const budgetGiornalieroTotale = useMemo(() => {
     if (giorniRestanti === 0) return 0;
     return saldo / giorniRestanti;
   }, [saldo, giorniRestanti]);
 
-  const totaleStimato = budgetGiornaliero * giorniRestanti;
-  const differenzaRiserva = totaleStimato - minimo;
-
-  const percentualeRiserva = minimo > 0 ? (differenzaRiserva / minimo) * 100 : 0;
+  const rapportoBudget =
+    budgetGiornalieroTotale > 0
+      ? (budgetGiornaliero / budgetGiornalieroTotale) * 100
+      : 0;
 
   const statoClasse =
-    differenzaRiserva >= 0
+    rapportoBudget >= 80
       ? "text-green-600"
-      : percentualeRiserva >= -25
+      : rapportoBudget >= 50
       ? "text-orange-500"
       : "text-red-600";
 
@@ -259,6 +263,9 @@ export default function BudgetApp() {
 
         <div className="space-y-2">
           <p>
+            Budget mensile al netto della riserva: <strong>{formatEuro(budgetMensileNettoRiserva)}</strong>
+          </p>
+          <p>
             Giorni restanti: <strong>{giorniRestanti}</strong>
           </p>
           <p>
@@ -266,14 +273,6 @@ export default function BudgetApp() {
           </p>
           <p>
             Budget giornaliero con riserva: <strong className={statoClasse}>{formatEuro(budgetGiornaliero)}</strong>
-          </p>
-          <p className={`text-sm ${statoClasse}`}>
-            {differenzaRiserva >= 0
-              ? `+${formatEuro(differenzaRiserva)} sopra la riserva`
-              : `-${formatEuro(Math.abs(differenzaRiserva))} sotto la riserva`}
-          </p>
-          <p className={`text-sm font-medium ${statoClasse}`}>
-            Riserva finale stimata: {formatEuro(minimo + differenzaRiserva)}
           </p>
         </div>
 
