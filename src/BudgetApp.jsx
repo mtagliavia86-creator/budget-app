@@ -243,7 +243,7 @@ export default function BudgetApp() {
 
           <div>
             <label className="text-sm font-medium">
-              Riserva desidera al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}
+              Riserva desiderata al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}
             </label>
             <div className="relative mt-1">
               <input
