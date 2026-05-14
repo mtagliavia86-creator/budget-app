@@ -1,342 +1,676 @@
-import React from "react";
-import { useState, useMemo, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-// VERSIONE STABILE: 4.0 GM
-// BREAKPOINT DI RIPRISTINO - NON MODIFICARE SENZA NUOVA VERSIONE
-export default function BudgetApp() {
-  const [saldo, setSaldo] = useState(0);
-  const [chebanca, setChebanca] = useState(0);
-  const [revolut, setRevolut] = useState(0);
-  const [targetDate, setTargetDate] = useState("");
-  const [minimo, setMinimo] = useState(0);
-  const [storico, setStorico] = useState([]);
-  const [lastUpdate, setLastUpdate] = useState(null);
+type Medication = {
+  id: string;
+  name: string;
+  initialPills: number;
+  pillsPerDose: number;
+  dosesPerDay: number;
+  doseTimes: string[];
+  lowThreshold: number;
+  startDate: string;
+};
 
-  const fileInputRef = useRef(null);
-  const [swipe, setSwipe] = useState({ index: null, x: 0, startX: 0 });
+const STORAGE_KEY = "my-therapy-v1";
 
-  const formatEuro = (val) =>
-    new Intl.NumberFormat("it-IT", {
-      style: "currency",
-      currency: "EUR"
-    }).format(val || 0);
+function createId() {
+  return Math.random().toString(36).slice(2, 9);
+}
 
-  const saldoCalcolato = useMemo(() => {
-    return Number(chebanca || 0) + Number(revolut || 0);
-  }, [chebanca, revolut]);
+function getConsumedPills(med: Medication) {
+  if (!med.startDate) return 0;
+
+  const start = new Date(med.startDate);
+  const now = new Date();
+
+  if (Number.isNaN(start.getTime())) {
+    return 0;
+  }
+
+  let consumed = 0;
+  const cursor = new Date(start);
+
+  while (cursor <= now) {
+    med.doseTimes.forEach((time) => {
+      const [hours, minutes] = time
+        .split(":")
+        .map(Number);
+
+      const doseDate = new Date(cursor);
+
+      doseDate.setHours(hours || 0, minutes || 0, 0, 0);
+
+      if (doseDate >= start && doseDate <= now) {
+        consumed += med.pillsPerDose;
+      }
+    });
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return consumed;
+}
+
+function getCurrentPills(med: Medication) {
+  return Math.max(0, med.initialPills - getConsumedPills(med));
+}
+
+function getDaysLeft(med: Medication) {
+  const dailyConsumption = med.pillsPerDose * med.dosesPerDay;
+
+  if (dailyConsumption <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(getCurrentPills(med) / dailyConsumption);
+}
+
+function getRefillDate(daysLeft: number) {
+  const date = new Date();
+
+  date.setDate(date.getDate() + daysLeft);
+
+  return date.toLocaleDateString("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+export default function App() {
+  const [medications, setMedications] = useState<Medication[]>([]);
+
+  const [pendingDelete, setPendingDelete] = useState<Medication | null>(null);
+  const [pendingRefill, setPendingRefill] = useState<Medication | null>(null);
+  const [pendingEdit, setPendingEdit] = useState<Medication | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  const [refillAmount, setRefillAmount] = useState(0);
+
+  const [form, setForm] = useState({
+    name: "",
+    initialPills: "",
+    pillsPerDose: "",
+    dosesPerDay: "",
+    doseTimes: [""],
+  });
 
   useEffect(() => {
-    const saved = localStorage.getItem("budget-data");
-    if (saved) {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+
+      if (!saved) return;
+
       const parsed = JSON.parse(saved);
-      setSaldo(parsed.saldo || 0);
-      setChebanca(parsed.chebanca || 0);
-      setRevolut(parsed.revolut || 0);
-      setTargetDate(parsed.targetDate || "");
-      setMinimo(parsed.minimo || 0);
-      setStorico(parsed.storico || []);
-      setLastUpdate(parsed.lastUpdate || null);
+
+      if (!Array.isArray(parsed)) return;
+
+      setMedications(parsed);
+    } catch {
+      setMedications([]);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(
-      "budget-data",
-      JSON.stringify({ saldo, chebanca, revolut, targetDate, minimo, storico, lastUpdate })
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(medications));
+  }, [medications]);
+
+  const sortedMedications = useMemo(() => {
+    return [...medications].sort(
+      (a, b) => getDaysLeft(a) - getDaysLeft(b)
     );
-  }, [saldo, chebanca, revolut, targetDate, minimo, storico, lastUpdate]);
+  }, [medications]);
 
-  const formatTimestamp = (date) => {
-    const d = new Date(date);
-    const pad = (n) => n.toString().padStart(2, "0");
+  function addMedication() {
+    if (!form.name.trim()) return;
 
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(
-      d.getHours()
-    )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  };
-
-  const confermaSaldo = () => {
-    const now = new Date();
-    const timestamp = formatTimestamp(now);
-
-    setSaldo(saldoCalcolato);
-    setLastUpdate(timestamp);
-
-    setStorico([
-      ...storico,
-      { data: timestamp, raw: Date.now(), saldo: saldoCalcolato }
+    setMedications((prev) => [
+      ...prev,
+      {
+        id: createId(),
+        name: form.name,
+        initialPills: Number(form.initialPills || 0),
+        pillsPerDose: Number(form.pillsPerDose || 1),
+        dosesPerDay: Number(form.dosesPerDay || 1),
+        doseTimes: form.doseTimes,
+        lowThreshold: 5,
+        startDate: new Date().toISOString(),
+      },
     ]);
-  };
 
-  const exportData = () => {
-    const data = { saldo, chebanca, revolut, targetDate, minimo, storico, lastUpdate };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    setForm({
+      name: "",
+      initialPills: "",
+      pillsPerDose: "",
+      dosesPerDay: "",
+      doseTimes: [""],
+    });
+
+    setShowAddModal(false);
+  }
+
+  function updateMedication(updated: Medication) {
+    setMedications((prev) =>
+      prev.map((med) =>
+        med.id === updated.id ? updated : med
+      )
+    );
+
+    setPendingEdit(null);
+  }
+
+  function refillMedication(id: string, amount: number) {
+    setMedications((prev) =>
+      prev.map((med) =>
+        med.id === id
+          ? {
+              ...med,
+              initialPills: amount,
+              startDate: new Date().toISOString(),
+            }
+          : med
+      )
+    );
+
+    setPendingRefill(null);
+  }
+
+  function removeMedication(id: string) {
+    setMedications((prev) =>
+      prev.filter((med) => med.id !== id)
+    );
+
+    setPendingDelete(null);
+  }
+
+  function exportData() {
+    const blob = new Blob([
+      JSON.stringify(medications, null, 2),
+    ]);
+
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `backup-budget-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
-  const importData = (event) => {
-    const file = event.target.files[0];
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "my-therapy-backup.json";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  }
+
+  function importData(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
     if (!file) return;
 
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = () => {
       try {
-        const parsed = JSON.parse(e.target.result);
+        const imported = JSON.parse(reader.result as string);
 
-        const map = new Map();
-        storico.forEach((i) => map.set(i.data, i));
-        (parsed.storico || []).forEach((i) => map.set(i.data, i));
+        if (!Array.isArray(imported)) {
+          throw new Error();
+        }
 
-        const merged = Array.from(map.values()).sort((a, b) => {
-          if (a.raw && b.raw) return a.raw - b.raw;
-          return 0;
-        });
-
-        setStorico(merged);
-        setSaldo(parsed.saldo ?? saldo);
-        setChebanca(parsed.chebanca ?? chebanca);
-        setRevolut(parsed.revolut ?? revolut);
-        setTargetDate(parsed.targetDate ?? targetDate);
-        setMinimo(parsed.minimo ?? minimo);
-        setLastUpdate(parsed.lastUpdate ?? lastUpdate);
-
-        alert("Backup unito correttamente");
-      } catch (err) {
-        console.error(err);
-        alert("Errore durante l'import");
+        setMedications(imported);
+      } catch {
+        alert("Backup non valido");
       }
     };
 
     reader.readAsText(file);
-  };
-
-  const rimuoviVoceStorico = (index) => {
-    const updated = [...storico];
-    updated.splice(index, 1);
-    setStorico(updated);
-
-    if (navigator.vibrate) navigator.vibrate(15);
-  };
-
-  const handleTouchStart = (e, index) => {
-    setSwipe({ index, x: 0, startX: e.touches[0].clientX });
-  };
-
-  const handleTouchMove = (e) => {
-    if (swipe.index === null) return;
-    const diff = e.touches[0].clientX - swipe.startX;
-    if (diff < 0) {
-      setSwipe((prev) => ({ ...prev, x: Math.max(diff, -120) }));
-    }
-  };
-
-  const handleTouchEnd = (index) => {
-    // reveal del tasto elimina invece di cancellazione immediata
-    if (swipe.x < -60) {
-      setSwipe({ index, x: -88, startX: 0 });
-      return;
-    }
-
-    setSwipe({ index: null, x: 0, startX: 0 });
-  };
-
-  const giorniRestanti = useMemo(() => {
-    if (!targetDate) return 0;
-    const diff = Math.ceil((new Date(targetDate) - new Date()) / 86400000);
-    return diff > 0 ? diff : 0;
-  }, [targetDate]);
-
-  const budgetGiornaliero = useMemo(() => {
-    if (giorniRestanti === 0) return 0;
-    return (saldo - minimo) / giorniRestanti;
-  }, [saldo, minimo, giorniRestanti]);
-
-  const budgetMensileNettoRiserva = useMemo(() => {
-    return saldo - minimo;
-  }, [saldo, minimo]);
-
-  const budgetGiornalieroTotale = useMemo(() => {
-    if (giorniRestanti === 0) return 0;
-    return saldo / giorniRestanti;
-  }, [saldo, giorniRestanti]);
-
-  const rapportoBudget =
-    budgetGiornalieroTotale > 0
-      ? (budgetGiornaliero / budgetGiornalieroTotale) * 100
-      : 0;
-
-  const statoClasse =
-    rapportoBudget >= 80
-      ? "text-green-600"
-      : rapportoBudget >= 50
-      ? "text-orange-500"
-      : "text-red-600";
-
-  const speseGiornaliere = useMemo(() => {
-    if (storico.length < 2) return [];
-
-    return storico.slice(1).map((curr, i) => ({
-      data: curr.data,
-      spesa: storico[i].saldo - curr.saldo,
-      index: i + 1
-    }));
-  }, [storico]);
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-md space-y-4">
-        <h1 className="text-xl font-bold text-center">Controllo budget giornaliero</h1>
+    <>
+      {pendingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+            <h2 className="text-lg font-bold">
+              Elimina farmaco
+            </h2>
 
-        <div className="grid grid-cols-2 gap-3">
-          {["CheBanca", "Revolut"].map((label, i) => {
-            const val = i === 0 ? chebanca : revolut;
-            const setter = i === 0 ? setChebanca : setRevolut;
+            <p className="mt-3 text-sm text-slate-600">
+              Sei sicura di voler eliminare
+              <span className="font-semibold text-slate-900">
+                {" "}
+                {pendingDelete.name}
+              </span>
+              ?
+            </p>
 
-            return (
-              <div key={label}>
-                <label className="text-sm font-medium">{label}</label>
-                <div className="relative mt-1">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={val}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/[^0-9.]/g, "");
-                      setter(v === "" ? 0 : Number(v));
-                    }}
-                    className="w-full p-2 pr-8 border rounded"
-                  />
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                className="rounded-2xl bg-slate-200 py-3 font-semibold"
+              >
+                Annulla
+              </button>
 
-        <div className="p-2 border rounded bg-gray-50 font-semibold text-center space-y-1">
-          <div className="text-xs text-gray-500">
-            Saldo al {lastUpdate ? lastUpdate.split(" ")[0] : "--/--/----"}
+              <button
+                type="button"
+                onClick={() => removeMedication(pendingDelete.id)}
+                className="rounded-2xl bg-red-500 py-3 font-semibold text-white"
+              >
+                Elimina
+              </button>
+            </div>
           </div>
-          <div>{formatEuro(saldoCalcolato)}</div>
         </div>
+      )}
 
-        <button onClick={confermaSaldo} className="w-full p-2 bg-black text-white rounded">
-          Conferma saldo
-        </button>
+      {pendingRefill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+            <h2 className="text-lg font-bold">
+              Refill farmaco
+            </h2>
 
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium">Data Stipendio</label>
+            <p className="mt-2 text-sm text-slate-500">
+              Inserisci il quantitativo attuale.
+              La data e l'ora correnti verranno salvate
+              per il ricalcolo automatico.
+            </p>
+
             <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              className="w-full p-2 border rounded mt-1"
+              type="number"
+              inputMode="numeric"
+              placeholder="Nuovo quantitativo attuale"
+              value={refillAmount}
+              onChange={(e) => setRefillAmount(Number(e.target.value))}
+              className="mt-4 w-full rounded-2xl bg-slate-200 px-4 py-3 text-base outline-none"
             />
-          </div>
 
-          <div>
-            <label className="text-sm font-medium">
-              Riserva desiderata al {targetDate ? new Date(targetDate).toLocaleDateString("it-IT") : "data stipendio"}
-            </label>
-            <div className="relative mt-1">
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingRefill(null)}
+                className="rounded-2xl bg-slate-200 py-3 font-semibold"
+              >
+                Annulla
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  refillMedication(pendingRefill.id, refillAmount)
+                }
+                className="rounded-2xl bg-emerald-500 py-3 font-semibold text-white"
+              >
+                Conferma
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 p-4">
+          <div className="mx-auto mt-10 w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+            <h2 className="mb-4 text-lg font-bold">
+              Registra nuovo farmaco
+            </h2>
+
+            <div className="space-y-4">
               <input
                 type="text"
-                inputMode="decimal"
-                value={minimo}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^0-9.]/g, "");
-                  setMinimo(v === "" ? 0 : Number(v));
-                }}
-                className="w-full p-2 pr-8 border rounded"
+                placeholder="Nome farmaco"
+                value={form.name}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    name: e.target.value,
+                  })
+                }
+                className="w-full rounded-xl bg-slate-200 px-4 py-3 text-base outline-none"
               />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">€</span>
+
+              <input
+                type="number"
+                inputMode="numeric"
+                placeholder="Pillole residue"
+                value={form.initialPills}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    initialPills: e.target.value,
+                  })
+                }
+                className="w-full rounded-xl bg-slate-200 px-4 py-3 text-base outline-none"
+              />
+
+              <input
+                type="number"
+                inputMode="numeric"
+                placeholder="Pillole per dose"
+                value={form.pillsPerDose}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    pillsPerDose: Number(e.target.value),
+                  })
+                }
+                className="w-full rounded-xl bg-slate-200 px-4 py-3 text-base outline-none"
+              />
+
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                placeholder="Dosi al giorno"
+                value={form.dosesPerDay}
+                onChange={(e) => {
+                  const doses = Math.max(1, Number(e.target.value));
+
+                  setForm({
+                    ...form,
+                    dosesPerDay: doses,
+                    doseTimes: Array.from(
+                      { length: Number(doses || 0) },
+                      (_, index) => form.doseTimes[index] || ""
+                    ),
+                  });
+                }}
+                className="w-full rounded-xl bg-slate-200 px-4 py-3 text-base outline-none"
+              />
+
+              {form.doseTimes.map((time, index) => (
+                <input
+                  key={index}
+                  type="time"
+                  value={time}
+                  onChange={(e) => {
+                    const updated = [...form.doseTimes];
+                    updated[index] = e.target.value;
+
+                    setForm({
+                      ...form,
+                      doseTimes: updated,
+                    });
+                  }}
+                  className="w-full rounded-xl bg-slate-200 px-4 py-3 text-base outline-none"
+                />
+              ))}
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="rounded-2xl bg-slate-200 py-3 font-semibold"
+                >
+                  Annulla
+                </button>
+
+                <button
+                  type="button"
+                  onClick={addMedication}
+                  className="rounded-2xl bg-blue-500 py-3 font-semibold text-white"
+                >
+                  Aggiungi
+                </button>
+              </div>
             </div>
           </div>
         </div>
+      )}
 
-        <div className="space-y-2">
-          <p>
-            Budget mensile al netto della riserva: <strong>{formatEuro(budgetMensileNettoRiserva)}</strong>
-          </p>
-          <p>
-            Giorni restanti: <strong>{giorniRestanti}</strong>
-          </p>
-          <p>
-            Budget giornaliero su saldo: <strong>{formatEuro(budgetGiornalieroTotale)}</strong>
-          </p>
-          <p>
-            Budget giornaliero con riserva: <strong className={statoClasse}>{formatEuro(budgetGiornaliero)}</strong>
-          </p>
+      {pendingEdit && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 p-4">
+          <div className="mx-auto mt-10 w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+            <h2 className="mb-4 text-lg font-bold">
+              Modifica farmaco
+            </h2>
+
+            <div className="space-y-4">
+              <input
+                type="text"
+                placeholder="Nome farmaco"
+                value={pendingEdit.name}
+                onChange={(e) =>
+                  setPendingEdit({
+                    ...pendingEdit,
+                    name: e.target.value,
+                  })
+                }
+                className="w-full rounded-2xl bg-slate-200 px-4 py-3 text-base outline-none"
+              />
+
+              <div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-500">
+                Pillole attuali: {getCurrentPills(pendingEdit)}
+              </div>
+
+              <input
+                type="number"
+                inputMode="numeric"
+                placeholder="Pillole per dose"
+                value={pendingEdit.pillsPerDose}
+                onChange={(e) =>
+                  setPendingEdit({
+                    ...pendingEdit,
+                    pillsPerDose:
+                      e.target.value === ""
+                        ? ""
+                        : Number(e.target.value),
+                  })
+                }
+                className="w-full rounded-2xl bg-slate-200 px-4 py-3 text-base outline-none"
+              />
+
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                placeholder="Dosi al giorno"
+                value={pendingEdit.dosesPerDay}
+                onChange={(e) => {
+                  const rawValue = e.target.value;
+                  const doses =
+                    rawValue === ""
+                      ? ""
+                      : Math.max(1, Number(rawValue));
+
+                  setPendingEdit({
+                    ...pendingEdit,
+                    dosesPerDay: doses,
+                    doseTimes: Array.from(
+                      { length: doses },
+                      (_, index) =>
+                        pendingEdit.doseTimes[index] || "08:00"
+                    ),
+                  });
+                }}
+                className="w-full rounded-2xl bg-slate-200 px-4 py-3 text-base outline-none"
+              />
+
+              {pendingEdit.doseTimes.map((time, index) => (
+                <input
+                  key={index}
+                  type="time"
+                  placeholder="Orario assunzione"
+                  value={time}
+                  onChange={(e) => {
+                    const updated = [...pendingEdit.doseTimes];
+
+                    updated[index] = e.target.value;
+
+                    setPendingEdit({
+                      ...pendingEdit,
+                      doseTimes: updated,
+                    });
+                  }}
+                  className="w-full rounded-2xl bg-slate-200 px-4 py-3 text-base outline-none"
+                />
+              ))}
+
+              <button
+                type="button"
+                onClick={() => updateMedication(pendingEdit)}
+                className="w-full rounded-2xl bg-blue-500 py-3 font-semibold text-white"
+              >
+                Salva modifiche
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-pink-100 via-amber-100 to-cyan-100 p-4 text-slate-900">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-40">
+          <div className="absolute -left-4 top-4 text-7xl rotate-12">🍬</div>
+          <div className="absolute right-2 top-16 text-8xl -rotate-6">🧁</div>
+          <div className="absolute left-8 top-1/4 text-7xl rotate-6">🍭</div>
+          <div className="absolute right-4 top-[38%] text-8xl -rotate-12">🍩</div>
+          <div className="absolute left-4 top-[55%] text-7xl rotate-12">🍫</div>
+          <div className="absolute right-8 top-[68%] text-8xl -rotate-6">🍪</div>
         </div>
 
-        {speseGiornaliere.length > 0 && (
-          <div className="pt-4">
-            <h2 className="font-semibold mb-2">Storico spese</h2>
-            <div className="space-y-2 text-sm">
-              {[...speseGiornaliere].reverse().map((s, idx) => {
-                const realIndex = speseGiornaliere.length - 1 - idx;
-                return (
-                  <div
-                    key={realIndex}
-                    onTouchStart={(e) => handleTouchStart(e, realIndex)}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={() => handleTouchEnd(realIndex)}
-                    className="relative overflow-hidden rounded-xl"
-                  >
-                    <button
-                      onClick={() => {
-                        rimuoviVoceStorico(realIndex);
-                        setSwipe({ index: null, x: 0, startX: 0 });
-                      }}
-                      className="absolute inset-y-0 right-0 w-24 bg-red-500 flex items-center justify-center text-white font-semibold active:bg-red-600"
-                    >
-                      🗑️
-                    </button>
+        <div className="relative mx-auto max-w-md">
+          <div className="mb-8 text-center">
+            <h1 className="inline-block rounded-3xl bg-gradient-to-r from-pink-300 via-fuchsia-300 to-cyan-300 px-5 py-2 text-3xl font-bold tracking-wide text-white shadow-lg shadow-pink-200/60">
+              Gaya's Therapy
+            </h1>
+          </div>
 
-                    <div
-                      className="relative z-10 flex justify-between items-center p-2 bg-white transition-transform duration-200 ease-out"
-                      style={{
-                        transform:
-                          swipe.index === realIndex
-                            ? `translateX(${swipe.x}px)`
-                            : "translateX(0px)"
-                      }}
-                    >
-                      <span>{s.data?.replace(/-/g, "/")}</span>
+          <div className="space-y-4">
+            {sortedMedications.map((med) => {
+              const currentPills = getCurrentPills(med);
+              const daysLeft = getDaysLeft(med);
+              const refillDate = getRefillDate(daysLeft);
 
-                      <span className={`${s.spesa >= 0 ? "text-red-600" : "text-green-600"} font-semibold`}>
-                        {`${s.spesa >= 0 ? "-" : "+"}${formatEuro(Math.abs(s.spesa))}`}
-                      </span>
+              return (
+                <div
+                  key={med.id}
+                  className="rounded-2xl border border-slate-300 bg-white/90 p-3 shadow-sm backdrop-blur"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-2">
+                    <div>
+                      <h2 className="text-lg font-bold">
+                        💊 {med.name}
+                      </h2>
+
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {med.pillsPerDose * med.dosesPerDay} {med.pillsPerDose * med.dosesPerDay === 1 ? "pillola al giorno" : "pillole al giorno"}
+                      </p>
+
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {med.doseTimes.map((time, index) => (
+                          <span
+                            key={index}
+                            className="rounded-full border border-white/60 bg-white/70 px-2 py-0.5 text-[11px] text-slate-700 shadow-sm"
+                          >
+                            ⏰ {time}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setPendingEdit(med)}
+                        className="rounded-xl bg-blue-500 px-2.5 py-1.5 text-xs font-semibold text-white"
+                      >
+                        ✎
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingRefill(med);
+                          setRefillAmount(currentPills);
+                        }}
+                        className="rounded-xl bg-emerald-500 px-2.5 py-1.5 text-xs font-semibold text-white"
+                      >
+                        ↻
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPendingDelete(med)}
+                        className="rounded-xl bg-red-500 px-2.5 py-1.5 text-xs font-semibold text-white"
+                      >
+                        ✕
+                      </button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-xl border border-slate-300/80 bg-gradient-to-br from-white to-slate-100 p-2 shadow-sm">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                        Rimaste
+                      </div>
+
+                      <div className="mt-0.5 text-lg font-bold">
+                        {currentPills}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-300/80 bg-gradient-to-br from-white to-slate-100 p-2 shadow-sm">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                        Copertura
+                      </div>
+
+                      <div className="mt-0.5 text-lg font-bold">
+                        {daysLeft} {daysLeft === 1 ? "giorno" : "giorni"}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-300/80 bg-gradient-to-br from-white to-slate-100 p-2 shadow-sm">
+                      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+                        Riacquisto
+                      </div>
+
+                      <div
+                        className={`mt-0.5 text-xs font-bold ${
+                          daysLeft <= 5
+                            ? "text-red-500"
+                            : "text-slate-900"
+                        }`}
+                      >
+                        {refillDate}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        )}
 
-        <div className="space-y-2">
           <button
-            onClick={() => fileInputRef.current.click()}
-            className="w-full p-2 bg-gray-700 text-white rounded"
+            type="button"
+            onClick={() => setShowAddModal(true)}
+            className="mt-6 w-full rounded-2xl bg-gradient-to-r from-pink-400 via-fuchsia-400 to-cyan-400 py-4 text-base font-bold text-white shadow-lg shadow-pink-200/60"
           >
-            Importa backup
+            Registra nuovo farmaco
           </button>
 
-          <input type="file" ref={fileInputRef} onChange={importData} className="hidden" />
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={exportData}
+              className="rounded-2xl bg-emerald-500 py-3 font-semibold text-white shadow-sm"
+            >
+              Esporta backup
+            </button>
 
-          <button onClick={exportData} className="w-full p-2 bg-blue-600 text-white rounded">
-            Esporta backup
-          </button>
+            <label className="flex cursor-pointer items-center justify-center rounded-2xl bg-blue-500 py-3 font-semibold text-white shadow-sm">
+              Importa backup
+
+              <input
+                type="file"
+                accept="application/json"
+                onChange={importData}
+                className="hidden"
+              />
+            </label>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
