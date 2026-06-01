@@ -318,7 +318,7 @@ export default function BudgetApp() {
   ];
 
   return (
-    <div className="min-h-screen bg-zinc-100 p-4 text-zinc-900 flex justify-center">
+    <div className="min-h-screen bg-zinc-100 px-4 pb-4 text-zinc-900 flex justify-center pt-[calc(env(safe-area-inset-top)+1rem)]">
       <div className="w-full max-w-md pb-20">
         <div className="backdrop-blur-xl bg-white/70 border border-white/50 rounded-3xl p-5 shadow-sm mb-4">
           <h1 className="text-3xl font-semibold tracking-tight">
