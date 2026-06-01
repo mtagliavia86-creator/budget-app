@@ -1,6 +1,54 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
-// VERSIONE STABILE: 4.7 GM
+const STORAGE_KEY = "budget-data";
+const EURO = "\u20ac";
+
+const formatEuroInput = (value) =>
+  new Intl.NumberFormat("it-IT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(value || 0));
+
+const parseAmount = (value) => {
+  const normalized = String(value).replace(/[^\d,.]/g, "").replace(",", ".");
+  return normalized === "" ? 0 : Number(normalized);
+};
+
+function MoneyInput({ disabled = false, value, onValueChange }) {
+  const [draft, setDraft] = useState(formatEuroInput(value));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraft(formatEuroInput(value));
+    }
+  }, [isFocused, value]);
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-sm font-semibold text-zinc-500">{EURO}</span>
+      <input
+        className="min-w-0 flex-1 bg-transparent text-base font-semibold outline-none disabled:cursor-not-allowed disabled:text-zinc-500"
+        disabled={disabled}
+        inputMode="decimal"
+        onBlur={() => {
+          setIsFocused(false);
+          setDraft(formatEuroInput(parseAmount(draft)));
+        }}
+        onChange={(e) => {
+          const next = e.target.value.replace(/[^\d,.]/g, "");
+          setDraft(next);
+          onValueChange(parseAmount(next));
+        }}
+        onFocus={() => setIsFocused(true)}
+        style={{ fontSize: "16px" }}
+        type="text"
+        value={draft}
+      />
+    </div>
+  );
+}
+
 export default function BudgetApp() {
   const [saldo, setSaldo] = useState(0);
   const [chebanca, setChebanca] = useState(0);
@@ -8,15 +56,16 @@ export default function BudgetApp() {
   const [targetDate, setTargetDate] = useState("");
   const [minimo, setMinimo] = useState(0);
   const [lastUpdate, setLastUpdate] = useState(null);
-
   const [monitorStartDate, setMonitorStartDate] = useState(null);
   const [monitorStartSaldo, setMonitorStartSaldo] = useState(null);
   const [monitorStartBudget, setMonitorStartBudget] = useState(null);
+  const [settingsEditable, setSettingsEditable] = useState(false);
+  const [showResetMonitorConfirm, setShowResetMonitorConfirm] = useState(false);
 
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("budget-data");
+    const saved = localStorage.getItem(STORAGE_KEY);
     if (!saved) return;
 
     try {
@@ -28,7 +77,6 @@ export default function BudgetApp() {
       setTargetDate(parsed.targetDate || "");
       setMinimo(parsed.minimo || 0);
       setLastUpdate(parsed.lastUpdate || null);
-
       setMonitorStartDate(parsed.monitorStartDate || null);
       setMonitorStartSaldo(parsed.monitorStartSaldo ?? null);
       setMonitorStartBudget(parsed.monitorStartBudget ?? null);
@@ -39,7 +87,7 @@ export default function BudgetApp() {
 
   useEffect(() => {
     localStorage.setItem(
-      "budget-data",
+      STORAGE_KEY,
       JSON.stringify({
         saldo,
         chebanca,
@@ -64,16 +112,28 @@ export default function BudgetApp() {
     monitorStartBudget
   ]);
 
-  const formatEuro = (value) =>
-    new Intl.NumberFormat("it-IT", {
-      style: "currency",
-      currency: "EUR"
-    }).format(Number(value || 0));
+  const formatEuro = (value) => `${EURO} ${formatEuroInput(value)}`;
 
   const formatDate = (date) => {
     const d = new Date(date);
     const pad = (n) => String(n).padStart(2, "0");
     return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  };
+
+  const formatTime = (date) => {
+    const d = new Date(date);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const formatLastUpdate = (value) => {
+    if (!value) return "--/--/---- alle ore --:--";
+
+    if (typeof value === "object" && value.date && value.time) {
+      return `${value.date} alle ore ${value.time}`;
+    }
+
+    return `${value} alle ore --:--`;
   };
 
   const parseItalianDate = (value) => {
@@ -149,8 +209,22 @@ export default function BudgetApp() {
     };
   }, [monitorStartDate, monitorStartSaldo, monitorStartBudget, saldoCalcolato]);
 
+  const andamentoText = useMemo(() => {
+    if (!andamento) return "Nessun monitoraggio attivo";
+    if (andamento.stato === "neutral") return "Monitoraggio avviato oggi";
+    if (andamento.differenza >= 0) {
+      return `${formatEuro(andamento.differenza)} sotto il budget previsto`;
+    }
+    return `${formatEuro(Math.abs(andamento.differenza))} sopra il budget previsto`;
+  }, [andamento]);
+
   const confermaSaldo = () => {
-    const timestamp = formatDate(new Date());
+    const now = new Date();
+    const timestamp = {
+      date: formatDate(now),
+      time: formatTime(now)
+    };
+
     setSaldo(saldoCalcolato);
     setLastUpdate(timestamp);
   };
@@ -161,6 +235,13 @@ export default function BudgetApp() {
     setMonitorStartDate(timestamp);
     setMonitorStartSaldo(saldoCalcolato);
     setMonitorStartBudget(budgetGiornaliero);
+  };
+
+  const resetMonitoraggio = () => {
+    setMonitorStartDate(null);
+    setMonitorStartSaldo(null);
+    setMonitorStartBudget(null);
+    setShowResetMonitorConfirm(false);
   };
 
   const exportData = () => {
@@ -206,7 +287,6 @@ export default function BudgetApp() {
         setTargetDate(parsed.targetDate || "");
         setMinimo(parsed.minimo || 0);
         setLastUpdate(parsed.lastUpdate || null);
-
         setMonitorStartDate(parsed.monitorStartDate || null);
         setMonitorStartSaldo(parsed.monitorStartSaldo ?? null);
         setMonitorStartBudget(parsed.monitorStartBudget ?? null);
@@ -219,184 +299,259 @@ export default function BudgetApp() {
     };
 
     reader.readAsText(file);
+    event.target.value = "";
   };
 
-  const getPallinoClass = () => {
-    if (!andamento) return "bg-gray-400";
-    if (andamento.stato === "green") return "bg-green-500";
-    if (andamento.stato === "orange") return "bg-orange-500";
-    if (andamento.stato === "red") return "bg-red-500";
-    return "bg-gray-400";
-  };
+  const accountCards = [
+    {
+      label: "CheBanca",
+      value: chebanca,
+      setter: setChebanca,
+      logoClass: "w-[4.25rem] h-12"
+    },
+    {
+      label: "Revolut",
+      value: revolut,
+      setter: setRevolut,
+      logoClass: "w-12 h-12"
+    }
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-lg p-6 w-full max-w-md space-y-4">
-        <h1 className="text-xl font-bold text-center">
-          Controllo budget giornaliero
-        </h1>
+    <div className="min-h-screen bg-zinc-100 p-4 text-zinc-900 flex justify-center">
+      <div className="w-full max-w-md pb-20">
+        <div className="backdrop-blur-xl bg-white/70 border border-white/50 rounded-3xl p-5 shadow-sm mb-4">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Budget Giornaliero
+          </h1>
 
-        <div className="grid grid-cols-2 gap-3">
-          {["CheBanca", "Revolut"].map((label, index) => {
-            const value = index === 0 ? chebanca : revolut;
-            const setter = index === 0 ? setChebanca : setRevolut;
-
-            return (
-              <div key={label}>
-                <label className="text-sm font-medium">{label}</label>
-
-                <div className="relative mt-1">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={value}
-                    onChange={(e) => {
-                      const clean = e.target.value.replace(/[^0-9.]/g, "");
-                      setter(clean === "" ? 0 : Number(clean));
-                    }}
-                    className="w-full p-2 pr-8 border rounded"
-                  />
-
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">
-                    €
-                  </span>
-                </div>
-              </div>
-            );
-          })}
+          <div className="mt-5">
+            <div className="bg-green-100 border border-green-200 rounded-2xl p-3">
+              <p className="text-xs font-medium text-green-700">
+                Saldo attuale
+              </p>
+              <p className="text-2xl font-bold text-green-900 mt-1">
+                {formatEuro(saldoCalcolato)}
+              </p>
+              <p className="text-[11px] text-green-700 mt-1">
+                Aggiornato al {formatLastUpdate(lastUpdate)}
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="p-2 border rounded bg-gray-50 font-semibold text-center space-y-1">
-          <div className="text-xs text-gray-500">
-            Saldo al {lastUpdate || "--/--/----"}
-          </div>
+        <div className="grid grid-cols-2 gap-3">
+          {accountCards.map((account) => (
+            <div
+              key={account.label}
+              className="rounded-2xl border border-white/60 bg-white/75 p-3 shadow-sm"
+            >
+              <div className="flex items-center justify-end min-h-12">
+                <span className="sr-only">{account.label}</span>
+                <img
+                  src={`/accounts/${account.label}.png`}
+                  alt={account.label}
+                  className={`object-contain shrink-0 ${account.logoClass}`}
+                />
+              </div>
 
-          <div>{formatEuro(saldoCalcolato)}</div>
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                <label className="sr-only">{account.label}</label>
+                <MoneyInput
+                  onValueChange={account.setter}
+                  value={account.value}
+                />
+              </div>
+            </div>
+          ))}
         </div>
 
         <button
           onClick={confermaSaldo}
-          className="w-full p-2 bg-black text-white rounded"
+          className="w-full h-12 mt-3 rounded-2xl bg-red-600 text-white text-sm font-semibold shadow-lg active:scale-95 transition-transform"
+          type="button"
         >
           Conferma saldo
         </button>
 
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium">Data stipendio</label>
+        <div className="mt-3 rounded-3xl border border-white/50 bg-white/70 p-3 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">Impostazioni budget</h2>
+              <p className="text-xs text-zinc-500">
+                Data stipendio e riserva desiderata
+              </p>
+            </div>
 
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              className="w-full p-2 border rounded mt-1"
-            />
+            <button
+              className={`h-9 shrink-0 rounded-full px-4 text-xs font-semibold active:scale-95 transition-transform ${
+                settingsEditable
+                  ? "bg-zinc-900 text-white"
+                  : "bg-white text-zinc-700 border border-zinc-200"
+              }`}
+              onClick={() => setSettingsEditable((current) => !current)}
+              type="button"
+            >
+              {settingsEditable ? "Salva" : "Modifica"}
+            </button>
           </div>
 
-          <div>
-            <label className="text-sm font-medium">
-              Riserva desiderata al{" "}
-              {targetDate
-                ? new Date(targetDate).toLocaleDateString("it-IT")
-                : "data stipendio"}
-            </label>
-
-            <div className="relative mt-1">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-white/60 bg-white/75 p-3 shadow-sm">
+              <label className="text-sm font-semibold">Data stipendio</label>
               <input
-                type="text"
-                inputMode="decimal"
-                value={minimo}
-                onChange={(e) => {
-                  const clean = e.target.value.replace(/[^0-9.]/g, "");
-                  setMinimo(clean === "" ? 0 : Number(clean));
-                }}
-                className="w-full p-2 pr-8 border rounded"
+                className="mt-3 w-full min-w-0 rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-base outline-none disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                disabled={!settingsEditable}
+                onChange={(e) => setTargetDate(e.target.value)}
+                style={{ fontSize: "16px" }}
+                type="date"
+                value={targetDate}
               />
+            </div>
 
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">
-                €
-              </span>
+            <div className="rounded-2xl border border-white/60 bg-white/75 p-3 shadow-sm">
+              <label className="text-sm font-semibold">Riserva desiderata</label>
+              <div
+                className={`mt-3 rounded-2xl border border-zinc-200 px-3 py-3 ${
+                  settingsEditable ? "bg-white" : "bg-zinc-100"
+                }`}
+              >
+                <MoneyInput
+                  disabled={!settingsEditable}
+                  onValueChange={setMinimo}
+                  value={minimo}
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="space-y-2">
-          <p>
-            Budget mensile al netto della riserva:{" "}
-            <strong>{formatEuro(budgetMensileNettoRiserva)}</strong>
-          </p>
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          <div className="rounded-2xl bg-green-50 border border-green-100 p-3">
+            <p className="text-xs font-semibold text-green-700">
+              Budget netto
+            </p>
+            <p className="mt-1 text-lg font-bold text-green-900">
+              {formatEuro(budgetMensileNettoRiserva)}
+            </p>
+          </div>
 
-          <p>
-            Giorni restanti: <strong>{giorniRestanti}</strong>
-          </p>
+          <div className="rounded-2xl bg-blue-50 border border-blue-100 p-3">
+            <p className="text-xs font-semibold text-blue-700">
+              Giorni
+            </p>
+            <p className="mt-1 text-lg font-bold text-blue-900">
+              {giorniRestanti}
+            </p>
+          </div>
 
-          <p>
-            Budget giornaliero con riserva:{" "}
-            <strong>{formatEuro(budgetGiornaliero)}</strong>
-          </p>
+          <div className="rounded-2xl bg-purple-50 border border-purple-100 p-3">
+            <p className="text-xs font-semibold text-purple-700">
+              Giornaliero
+            </p>
+            <p className="mt-1 text-lg font-bold text-purple-900">
+              {formatEuro(budgetGiornaliero)}
+            </p>
+          </div>
         </div>
 
-        <div className="border rounded-xl p-3 bg-gray-50 space-y-2">
-          <button
-            onClick={iniziaMonitoraggio}
-            className="w-full p-2 bg-gray-900 text-white rounded"
-          >
-            🎯 Inizia monitoraggio
-          </button>
+        <div className="mt-6 bg-white/70 backdrop-blur-xl border border-white/50 rounded-3xl p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold">Monitoraggio</h2>
+              <p className="text-xs text-zinc-500 mt-1">
+                Traccia i progressi rispetto al budget giornaliero
+              </p>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={iniziaMonitoraggio}
+                className="h-11 px-4 rounded-2xl bg-blue-600 text-white text-sm font-semibold active:scale-95 transition-transform shadow-sm"
+                type="button"
+              >
+                Avvia
+              </button>
+
+              <button
+                onClick={() => setShowResetMonitorConfirm(true)}
+                className="h-11 px-4 rounded-2xl bg-zinc-200 text-zinc-700 text-sm font-semibold active:scale-95 transition-transform shadow-sm"
+                type="button"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-zinc-100 rounded-2xl p-4 text-center text-sm text-zinc-500 border border-zinc-200">
+            {andamentoText}
+          </div>
 
           {monitorStartDate && (
-            <div className="text-xs text-gray-500 text-center">
-              Monitoraggio dal {monitorStartDate}
-            </div>
-          )}
-
-          {andamento && (
-            <div className="flex items-start gap-2 text-sm">
-              <span
-                className={`mt-1 inline-block h-3 w-3 rounded-full ${getPallinoClass()}`}
-              />
-
-              <span>
-                {andamento.stato === "neutral" ? (
-                  "Monitoraggio avviato oggi"
-                ) : andamento.differenza >= 0 ? (
-                  <>
-                    {formatEuro(andamento.differenza)} sotto il budget previsto
-                  </>
-                ) : (
-                  <>
-                    {formatEuro(Math.abs(andamento.differenza))} sopra il budget
-                    previsto
-                  </>
-                )}
-              </span>
-            </div>
+            <p className="mt-3 text-center text-xs text-zinc-500">
+              Avviato il {monitorStartDate} con budget giornaliero{" "}
+              {formatEuro(monitorStartBudget)}
+            </p>
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2 pt-2 border-t">
+        <div className="grid grid-cols-2 gap-3 mt-6">
           <button
             onClick={exportData}
-            className="p-2 rounded bg-black text-white text-sm"
+            className="h-12 rounded-2xl bg-green-600 text-white font-semibold active:scale-[0.98] transition-transform shadow-sm"
+            type="button"
           >
-            Esporta
+            Esporta Backup
           </button>
 
-          <button
-            onClick={() => fileInputRef.current.click()}
-            className="p-2 rounded bg-gray-700 text-white text-sm"
-          >
-            Importa
-          </button>
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json"
+              onChange={importData}
+              className="hidden"
+            />
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full h-12 rounded-2xl bg-red-600 text-white font-semibold active:scale-[0.98] transition-transform shadow-sm"
+              type="button"
+            >
+              Importa Backup
+            </button>
+          </div>
         </div>
 
-        <input
-          type="file"
-          accept="application/json"
-          ref={fileInputRef}
-          onChange={importData}
-          className="hidden"
-        />
+        {showResetMonitorConfirm && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl">
+              <h3 className="text-lg font-semibold">Reset monitoraggio</h3>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-600">
+                Vuoi azzerare il monitoraggio attivo? Saldo, conti, data
+                stipendio e riserva resteranno invariati.
+              </p>
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button
+                  className="h-12 rounded-2xl bg-zinc-200 text-zinc-700 font-semibold active:scale-[0.98] transition-transform"
+                  onClick={() => setShowResetMonitorConfirm(false)}
+                  type="button"
+                >
+                  Annulla
+                </button>
+
+                <button
+                  className="h-12 rounded-2xl bg-red-600 text-white font-semibold active:scale-[0.98] transition-transform"
+                  onClick={resetMonitoraggio}
+                  type="button"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
