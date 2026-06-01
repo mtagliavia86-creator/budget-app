@@ -1,3 +1,54 @@
+/* index.html */
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+
+    <title>Controllo Budget Giornaliero</title>
+
+    <!-- PWA / iPhone -->
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Budget" />
+
+    <!-- Icona -->
+    <link rel="apple-touch-icon" href="/bas.png" />
+    <link rel="icon" type="image/png" href="/bas.png" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <!-- React Entry -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+
+/* src/BudgetApp.jsx */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const STORAGE_KEY = "budget-data";
