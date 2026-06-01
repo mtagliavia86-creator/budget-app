@@ -245,6 +245,13 @@ export default function BudgetApp() {
   };
 
   const exportData = () => {
+    const now = new Date();
+    const backupDate = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0")
+    ].join("-");
+
     const data = {
       saldo,
       chebanca,
@@ -265,7 +272,7 @@ export default function BudgetApp() {
     const a = document.createElement("a");
 
     a.href = url;
-    a.download = `budget-backup-${Date.now()}.json`;
+    a.download = `budgetApp-${backupDate}.json`;
     a.click();
 
     URL.revokeObjectURL(url);
