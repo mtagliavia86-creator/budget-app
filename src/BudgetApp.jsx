@@ -218,6 +218,22 @@ export default function BudgetApp() {
     return `${formatEuro(Math.abs(andamento.differenza))} sopra il budget previsto`;
   }, [andamento]);
 
+  const andamentoClassName = useMemo(() => {
+    if (!andamento || andamento.stato === "neutral") {
+      return "bg-zinc-100 text-zinc-500 border-zinc-200";
+    }
+
+    if (andamento.stato === "green") {
+      return "bg-green-100 text-green-800 border-green-200";
+    }
+
+    if (andamento.stato === "orange") {
+      return "bg-orange-100 text-orange-800 border-orange-200";
+    }
+
+    return "bg-red-100 text-red-800 border-red-200";
+  }, [andamento]);
+
   const confermaSaldo = () => {
     const now = new Date();
     const timestamp = {
@@ -471,26 +487,28 @@ export default function BudgetApp() {
               </p>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                onClick={iniziaMonitoraggio}
-                className="h-11 px-4 rounded-2xl bg-blue-600 text-white text-sm font-semibold active:scale-95 transition-transform shadow-sm"
-                type="button"
-              >
-                Avvia
-              </button>
-
+            {monitorStartDate ? (
               <button
                 onClick={() => setShowResetMonitorConfirm(true)}
-                className="h-11 px-4 rounded-2xl bg-zinc-200 text-zinc-700 text-sm font-semibold active:scale-95 transition-transform shadow-sm"
+                className="h-11 shrink-0 px-4 rounded-2xl bg-zinc-200 text-zinc-700 text-sm font-semibold active:scale-95 transition-transform shadow-sm"
                 type="button"
               >
                 Reset
               </button>
-            </div>
+            ) : (
+              <button
+                onClick={iniziaMonitoraggio}
+                className="h-11 shrink-0 px-4 rounded-2xl bg-blue-600 text-white text-sm font-semibold active:scale-95 transition-transform shadow-sm"
+                type="button"
+              >
+                Avvia
+              </button>
+            )}
           </div>
 
-          <div className="bg-zinc-100 rounded-2xl p-4 text-center text-sm text-zinc-500 border border-zinc-200">
+          <div
+            className={`rounded-2xl border p-4 text-center text-sm font-semibold ${andamentoClassName}`}
+          >
             {andamentoText}
           </div>
 
